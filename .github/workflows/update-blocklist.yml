@@ -1,0 +1,52 @@
+name: Update Disposable Email Blocklist
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-blocklist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest blocklist
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf \
+            -o guardpost/data/disposable_email_blocklist.conf
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet guardpost/data/disposable_email_blocklist.conf; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            ADDED=$(git diff --numstat guardpost/data/disposable_email_blocklist.conf | awk '{print $1}')
+            REMOVED=$(git diff --numstat guardpost/data/disposable_email_blocklist.conf | awk '{print $2}')
+            TOTAL=$(wc -l < guardpost/data/disposable_email_blocklist.conf | tr -d ' ')
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "added=$ADDED" >> "$GITHUB_OUTPUT"
+            echo "removed=$REMOVED" >> "$GITHUB_OUTPUT"
+            echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Pull Request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: update disposable email blocklist"
+          branch: auto/update-blocklist
+          title: "chore: update disposable email blocklist"
+          body: |
+            Automated update from [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains).
+
+            - **Added:** ${{ steps.diff.outputs.added }} domains
+            - **Removed:** ${{ steps.diff.outputs.removed }} domains
+            - **Total:** ${{ steps.diff.outputs.total }} domains
+          labels: dependencies

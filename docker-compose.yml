@@ -1,0 +1,32 @@
+services:
+  guardpost:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - guardpost_data:/data
+    environment:
+      - GUARDPOST_REDIS_URL=redis://redis:6379
+      - GUARDPOST_API_KEY=${GUARDPOST_API_KEY:-}
+      - GUARDPOST_RATE_LIMIT=${GUARDPOST_RATE_LIMIT:-0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack-server:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  guardpost_data:
+  redis_data:

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;">
+<title>Guardpost</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f5f5f0;
+  --surface: #fafaf8;
+  --border: #e5e2d9;
+  --text: #1c1917;
+  --text-secondary: #78716c;
+  --text-tertiary: #a8a29e;
+  --accent: #0f766e;
+  --accent-light: #f0fdfa;
+  --green: #059669;
+  --green-bg: #ecfdf5;
+  --amber: #b45309;
+  --amber-bg: #fffbeb;
+  --red: #dc2626;
+  --red-bg: #fef2f2;
+  --radius: 8px;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* —— Header —— */
+
+header {
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wordmark svg { flex-shrink: 0; }
+
+.version-badge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background: var(--accent-light);
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.connection-status {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background 0.3s;
+}
+
+.status-dot.ok { background: var(--green); }
+.status-dot.err { background: var(--red); }
+
+/* —— Main —— */
+
+main {
+  flex: 1;
+  padding: 0 2rem 2rem;
+  max-width: 72rem;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* —— Auth prompt —— */
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(245, 245, 240, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.auth-overlay[hidden] {
+  display: none;
+}
+
+.auth-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  width: 100%;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-box h2 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.auth-box p {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.auth-box input {
+  font-family: inherit;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-box input:focus { border-color: var(--accent); }
+
+.auth-box button {
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.auth-box button:hover { opacity: 0.85; }
+
+.auth-error {
+  font-size: 0.8125rem;
+  color: var(--red);
+  display: none;
+}
+
+/* —— Stats grid —— */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  background: var(--surface);
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.stat-sub {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card.warn .stat-value { color: var(--amber); }
+.stat-card.danger .stat-value { color: var(--red); }
+
+/* —— Detail panels —— */
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+}
+
+.panel.full-width {
+  grid-column: 1 / -1;
+}
+
+.panel-title {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+
+.chart-container {
+  width: 100%;
+  height: 260px;
+}
+
+.chart-container-sm {
+  width: 100%;
+  height: 220px;
+}
+
+/* —— Info list —— */
+
+.info-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.info-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.info-list li:last-child { border-bottom: none; }
+
+.info-label { color: var(--text-secondary); }
+
+.info-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.info-value.ok { color: var(--green); }
+.info-value.warn { color: var(--amber); }
+
+/* —— Loading / empty state —— */
+
+.placeholder {
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem;
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* —— Footer —— */
+
+footer {
+  padding: 1rem 2rem;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* —— Responsive —— */
+
+@media (max-width: 768px) {
+  header { padding: 1.25rem 1.25rem; }
+  main { padding: 0 1.25rem 1.25rem; }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  header { padding: 1rem; }
+  main { padding: 0 1rem 1rem; }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+  }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="wordmark">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    Guardpost
+  </span>
+  <span class="version-badge" id="version">—</span>
+  <span class="connection-status">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="conn-text">Connecting</span>
+  </span>
+</header>
+
+<div class="auth-overlay" id="auth-overlay" hidden>
+  <div class="auth-box">
+    <h2>API Key Required</h2>
+    <p>This Guardpost instance requires authentication. Enter your API key to view the dashboard.</p>
+    <input type="password" id="api-key-input" placeholder="X-Api-Key" autocomplete="off">
+    <span class="auth-error" id="auth-error">Invalid API key. Please try again.</span>
+    <button id="auth-submit">Connect</button>
+  </div>
+</div>
+
+<main>
+  <section class="stats-grid fade-in" id="stats-section">
+    <div class="stat-card">
+      <span class="stat-label">Registrations</span>
+      <span class="stat-value" id="v-regs">—</span>
+      <span class="stat-sub" id="v-regs-sub">&nbsp;</span>
+    </div>
+    <div class="stat-card" id="card-suspicious">
+      <span class="stat-label">Suspicious</span>
+      <span class="stat-value" id="v-suspicious">—</span>
+      <span class="stat-sub" id="v-suspicious-sub">&nbsp;</span>
+    </div>
+    <div class="stat-card" id="card-block-rate">
+      <span class="stat-label">Block Rate</span>
+      <span class="stat-value" id="v-block-rate">—</span>
+      <span class="stat-sub">&nbsp;</span>
+    </div>
+    <div class="stat-card" id="card-banned">
+      <span class="stat-label">Banned Emails</span>
+      <span class="stat-value" id="v-banned">—</span>
+      <span class="stat-sub">&nbsp;</span>
+    </div>
+  </section>
+
+  <section class="detail-grid fade-in">
+    <div class="panel full-width">
+      <div class="panel-title">Registration Activity (24h)</div>
+      <div class="chart-container" id="chart-activity"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">IP Reputation</div>
+      <div class="chart-container-sm" id="chart-ip"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">System</div>
+      <ul class="info-list">
+        <li>
+          <span class="info-label">API Status</span>
+          <span class="info-value" id="sys-status">—</span>
+        </li>
+        <li>
+          <span class="info-label">Total IPs Tracked</span>
+          <span class="info-value" id="sys-ips">—</span>
+        </li>
+        <li>
+          <span class="info-label">Whitelisted IPs</span>
+          <span class="info-value" id="sys-white">—</span>
+        </li>
+        <li>
+          <span class="info-label">Refresh Interval</span>
+          <span class="info-value">10s</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Auto-refreshes every 10 seconds · Last updated <span id="last-update">never</span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+        integrity="sha384-pPi0zxBAoDu6+JXW/C68UZLvBUUtU+7zonhif43rqj7pxsGyqyqzcian2Rj37Rss"
+        crossorigin="anonymous"></script>
+<script>
+(function () {
+  "use strict";
+
+  const REFRESH_MS = 10_000;
+  let apiKey = sessionStorage.getItem("gp_key") || "";
+  let refreshTimer = null;
+
+  // DOM refs
+  const $ = (id) => document.getElementById(id);
+  const overlay = $("auth-overlay");
+  const dot = $("status-dot");
+  const connText = $("conn-text");
+
+  // ECharts instances
+  let activityChart = null;
+  let ipChart = null;
+
+  function initCharts() {
+    if (activityChart) return;
+    const textColor = "#78716c";
+    const borderColor = "#e5e2d9";
+
+    activityChart = echarts.init($("chart-activity"));
+    activityChart.setOption({
+      grid: { left: 48, right: 16, top: 16, bottom: 32 },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "#fafaf8",
+        borderColor: borderColor,
+        textStyle: { color: "#1c1917", fontSize: 12 },
+        formatter: function (params) {
+          const p = params[0];
+          const d = new Date(p.value[0]);
+          const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          return time + "<br/>" + p.value[1] + " registrations";
+        }
+      },
+      xAxis: {
+        type: "time",
+        axisLine: { lineStyle: { color: borderColor } },
+        axisLabel: { color: textColor, fontSize: 11 },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: "value",
+        minInterval: 1,
+        axisLine: { show: false },
+        axisLabel: { color: textColor, fontSize: 11 },
+        splitLine: { lineStyle: { color: borderColor, type: "dashed" } },
+      },
+      series: [{
+        type: "bar",
+        barMaxWidth: 24,
+        itemStyle: { color: "#0f766e", borderRadius: [3, 3, 0, 0] },
+        emphasis: { itemStyle: { color: "#059669" } },
+        data: [],
+      }],
+    });
+
+    ipChart = echarts.init($("chart-ip"));
+    ipChart.setOption({
+      tooltip: {
+        trigger: "item",
+        backgroundColor: "#fafaf8",
+        borderColor: borderColor,
+        textStyle: { color: "#1c1917", fontSize: 12 },
+        formatter: "{b}: {c} ({d}%)"
+      },
+      series: [{
+        type: "pie",
+        radius: ["48%", "72%"],
+        center: ["50%", "50%"],
+        avoidLabelOverlap: true,
+        itemStyle: { borderColor: "#fafaf8", borderWidth: 2, borderRadius: 4 },
+        label: {
+          fontSize: 11,
+          color: textColor,
+          formatter: "{b}\n{d}%",
+        },
+        emphasis: {
+          label: { fontWeight: "bold" },
+          scaleSize: 4,
+        },
+        data: [],
+      }],
+    });
+
+    // Resize on window resize
+    window.addEventListener("resize", () => {
+      activityChart && activityChart.resize();
+      ipChart && ipChart.resize();
+    });
+  }
+
+  // —— Auth flow ——
+  $("auth-submit").addEventListener("click", tryAuth);
+  $("api-key-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryAuth();
+  });
+
+  async function tryAuth() {
+    const input = $("api-key-input");
+    apiKey = input.value.trim();
+    $("auth-error").style.display = "none";
+    try {
+      const res = await apiFetch("/api/v1/stats");
+      if (res.ok) {
+        sessionStorage.setItem("gp_key", apiKey);
+        overlay.hidden = true;
+        refresh();
+        startAutoRefresh();
+      } else {
+        $("auth-error").style.display = "block";
+        apiKey = "";
+        input.select();
+      }
+    } catch {
+      $("auth-error").style.display = "block";
+      apiKey = "";
+    }
+  }
+
+  function apiFetch(path) {
+    const headers = {};
+    if (apiKey) headers["X-Api-Key"] = apiKey;
+    return fetch(path, { headers });
+  }
+
+  // —— Data fetching ——
+  async function refresh() {
+    try {
+      const [healthRes, statsRes, timelineRes] = await Promise.all([
+        apiFetch("/api/v1/health"),
+        apiFetch("/api/v1/stats"),
+        apiFetch("/api/v1/stats/timeline?hours=24&bucket_minutes=60"),
+      ]);
+
+      if (healthRes.status === 401 || statsRes.status === 401) {
+        showAuth();
+        return;
+      }
+
+      const health = await healthRes.json();
+      const stats = await statsRes.json();
+      const timeline = timelineRes.ok ? await timelineRes.json() : null;
+
+      initCharts();
+      renderHealth(health);
+      renderStats(stats);
+      if (timeline) renderTimeline(timeline);
+      setConnected(true);
+    } catch {
+      setConnected(false);
+    }
+  }
+
+  function showAuth() {
+    overlay.hidden = false;
+    $("api-key-input").focus();
+    clearInterval(refreshTimer);
+  }
+
+  function setConnected(ok) {
+    dot.className = "status-dot " + (ok ? "ok" : "err");
+    connText.textContent = ok ? "Connected" : "Disconnected";
+    $("last-update").textContent = new Date().toLocaleTimeString();
+  }
+
+  // —— Rendering ——
+  function renderHealth(h) {
+    $("version").textContent = "v" + h.version;
+    $("sys-status").textContent = h.status === "ok" ? "Healthy" : h.status;
+    $("sys-status").className = "info-value " + (h.status === "ok" ? "ok" : "warn");
+  }
+
+  function renderStats(s) {
+    const total = s.total_registrations || 0;
+    const suspicious = s.total_suspicious_registrations || 0;
+    const rate = total > 0 ? ((suspicious / total) * 100) : 0;
+    const banned = s.total_banned_emails || 0;
+    const totalIps = s.total_ips || 0;
+    const gray = s.graylisted_ips || 0;
+    const black = s.blacklisted_ips || 0;
+    const white = s.whitelisted_ips || 0;
+    const clean = Math.max(0, totalIps - gray - black);
+
+    // Stat cards
+    $("v-regs").textContent = fmt(total);
+    $("v-suspicious").textContent = fmt(suspicious);
+    $("v-block-rate").textContent = rate.toFixed(1) + "%";
+    $("v-banned").textContent = fmt(banned);
+
+    // Sub-text
+    $("v-regs-sub").textContent = totalIps + " unique IPs";
+    $("v-suspicious-sub").textContent = suspicious > 0
+      ? fmt(suspicious) + " of " + fmt(total)
+      : "None detected";
+
+    // Card severity
+    const suspCard = $("card-suspicious");
+    const rateCard = $("card-block-rate");
+    const banCard = $("card-banned");
+
+    suspCard.className = "stat-card" + (suspicious > 0 ? " warn" : "");
+    rateCard.className = "stat-card" + (rate > 15 ? " danger" : rate > 5 ? " warn" : "");
+    banCard.className = "stat-card" + (banned > 0 ? " warn" : "");
+
+    // System info
+    $("sys-ips").textContent = fmt(totalIps);
+    $("sys-white").textContent = fmt(white);
+
+    // IP reputation donut
+    if (ipChart) {
+      const colors = { Clean: "#059669", Graylisted: "#b45309", Blacklisted: "#dc2626" };
+      const data = [];
+      if (clean > 0) data.push({ value: clean, name: "Clean", itemStyle: { color: colors.Clean } });
+      if (gray > 0) data.push({ value: gray, name: "Graylisted", itemStyle: { color: colors.Graylisted } });
+      if (black > 0) data.push({ value: black, name: "Blacklisted", itemStyle: { color: colors.Blacklisted } });
+      if (data.length === 0) data.push({ value: 1, name: "No data", itemStyle: { color: "#e5e2d9" } });
+      ipChart.setOption({ series: [{ data }] });
+    }
+  }
+
+  function renderTimeline(tl) {
+    if (!activityChart || !tl.buckets) return;
+    const data = tl.buckets.map(b => [b.t * 1000, b.count]);
+
+    // If no data, fill with zeros for the last 24h so the chart isn't blank
+    if (data.length === 0) {
+      const now = Date.now();
+      for (let i = 23; i >= 0; i--) {
+        data.push([now - i * 3600000, 0]);
+      }
+    }
+
+    activityChart.setOption({ series: [{ data }] });
+  }
+
+  function fmt(n) {
+    return n.toLocaleString("en-US");
+  }
+
+  // —— Init ——
+  function startAutoRefresh() {
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(refresh, REFRESH_MS);
+  }
+
+  // Initial load
+  (async () => {
+    try {
+      const res = await apiFetch("/api/v1/health");
+      if (res.status === 401) {
+        showAuth();
+      } else {
+        overlay.hidden = true;
+        await refresh();
+        startAutoRefresh();
+      }
+    } catch {
+      setConnected(false);
+      // Retry after interval even if first load fails
+      startAutoRefresh();
+    }
+  })();
+})();
+</script>
+
+</body>
+</html>
