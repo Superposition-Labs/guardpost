@@ -99,42 +99,42 @@ Redis configuration is passed via `GUARDPOST_REDIS_URL` environment variable (e.
 
 ### Redis-specific constructor options
 
-| Parameter | Default | Purpose |
-|---|---|---|
-| `bloom_capacity` | `100,000` | Expected banned email count for Bloom filter sizing |
-| `bloom_error_rate` | `0.01` | Bloom filter false-positive rate |
-| `topk_size` | `100` | Top IPs to track |
-| `cms_width` / `cms_depth` | `2000` / `5` | Count-Min Sketch dimensions |
+| Parameter                 | Default      | Purpose                                             |
+| ------------------------- | ------------ | --------------------------------------------------- |
+| `bloom_capacity`          | `100,000`    | Expected banned email count for Bloom filter sizing |
+| `bloom_error_rate`        | `0.01`       | Bloom filter false-positive rate                    |
+| `topk_size`               | `100`        | Top IPs to track                                    |
+| `cms_width` / `cms_depth` | `2000` / `5` | Count-Min Sketch dimensions                         |
 
 ## Detection Layers
 
-| Layer | Catches | Example |
-|---|---|---|
-| Disposable blocklist | 5,200+ known domains | mailinator.com |
-| Heuristic patterns | Numeric domains (≥4 digits), short domains (≤2 chars) | test@1234abc.com |
-| DNS MX validation | Domains with no mail server | test@doesnotexist.xyz |
-| MX infrastructure | Fresh domains using disposable mail backends | Domains pointing to mail.tm |
-| Role accounts | Functional addresses (200 prefixes) | info@, admin@, postmaster@ |
-| IP reputation | IPs with excessive registrations | 5+ suspicious → graylist |
-| Banned emails | Permanently banned (SHA-256 hash match) | Exact match after normalization |
+| Layer                | Catches                                               | Example                         |
+| -------------------- | ----------------------------------------------------- | ------------------------------- |
+| Disposable blocklist | 5,200+ known domains                                  | mailinator.com                  |
+| Heuristic patterns   | Numeric domains (≥4 digits), short domains (≤2 chars) | test@1234abc.com                |
+| DNS MX validation    | Domains with no mail server                           | test@doesnotexist.xyz           |
+| MX infrastructure    | Fresh domains using disposable mail backends          | Domains pointing to mail.tm     |
+| Role accounts        | Functional addresses (200 prefixes)                   | info@, admin@, postmaster@      |
+| IP reputation        | IPs with excessive registrations                      | 5+ suspicious → graylist        |
+| Banned emails        | Permanently banned (SHA-256 hash match)               | Exact match after normalization |
 
 ## API Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/check` | Full registration check (email + IP) |
-| `POST` | `/api/v1/email/validate` | Email-only validation |
-| `POST` | `/api/v1/email/smtp` | SMTP mailbox verification |
-| `POST` | `/api/v1/ip/check` | IP reputation check |
-| `POST` | `/api/v1/ip/record` | Record a registration from IP |
-| `POST` | `/api/v1/ip/proxy` | VPN/proxy/datacenter detection |
-| `POST` | `/api/v1/ai/score` | AI email risk scoring |
-| `POST` | `/api/v1/ai/score/batch` | Batch AI scoring |
-| `GET` | `/api/v1/patterns/report` | Registration pattern report |
-| `POST` | `/api/v1/email/ban` | Ban an email |
-| `DELETE` | `/api/v1/email/ban` | Unban an email |
-| `GET` | `/api/v1/stats` | Aggregate statistics |
-| `GET` | `/api/v1/health` | Health check |
+| Method   | Path                      | Description                          |
+| -------- | ------------------------- | ------------------------------------ |
+| `POST`   | `/api/v1/check`           | Full registration check (email + IP) |
+| `POST`   | `/api/v1/email/validate`  | Email-only validation                |
+| `POST`   | `/api/v1/email/smtp`      | SMTP mailbox verification            |
+| `POST`   | `/api/v1/ip/check`        | IP reputation check                  |
+| `POST`   | `/api/v1/ip/record`       | Record a registration from IP        |
+| `POST`   | `/api/v1/ip/proxy`        | VPN/proxy/datacenter detection       |
+| `POST`   | `/api/v1/ai/score`        | AI email risk scoring                |
+| `POST`   | `/api/v1/ai/score/batch`  | Batch AI scoring                     |
+| `GET`    | `/api/v1/patterns/report` | Registration pattern report          |
+| `POST`   | `/api/v1/email/ban`       | Ban an email                         |
+| `DELETE` | `/api/v1/email/ban`       | Unban an email                       |
+| `GET`    | `/api/v1/stats`           | Aggregate statistics                 |
+| `GET`    | `/api/v1/health`          | Health check                         |
 
 OpenAPI docs at `/docs` when the server is running.
 
@@ -154,29 +154,29 @@ gp = Guardpost(
 
 ### Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `GUARDPOST_API_KEY` | API key for authentication |
-| `GUARDPOST_REDIS_URL` | Redis connection URL |
-| `GUARDPOST_RATE_LIMIT` | Max requests/min per IP (0 = disabled) |
-| `GUARDPOST_ENABLE_SMTP` | Enable SMTP verification |
-| `GUARDPOST_ENABLE_PROXY_DETECTION` | Enable VPN/proxy detection |
-| `GUARDPOST_ENABLE_AI` | Enable AI scoring |
-| `GUARDPOST_ENABLE_PATTERNS` | Enable pattern detection |
-| `GUARDPOST_ENABLE_ENRICHMENT` | Enable Gravatar + HIBP |
-| `OPENROUTER_API_KEY` | OpenRouter API key for AI scoring |
-| `IPINFO_TOKEN` | IPinfo.io token for proxy detection |
-| `GUARDPOST_MAXMIND_DB` | Path to MaxMind GeoLite2 ASN .mmdb |
-| `HIBP_API_KEY` | Have I Been Pwned API key |
+| Variable                           | Purpose                                |
+| ---------------------------------- | -------------------------------------- |
+| `GUARDPOST_API_KEY`                | API key for authentication             |
+| `GUARDPOST_REDIS_URL`              | Redis connection URL                   |
+| `GUARDPOST_RATE_LIMIT`             | Max requests/min per IP (0 = disabled) |
+| `GUARDPOST_ENABLE_SMTP`            | Enable SMTP verification               |
+| `GUARDPOST_ENABLE_PROXY_DETECTION` | Enable VPN/proxy detection             |
+| `GUARDPOST_ENABLE_AI`              | Enable AI scoring                      |
+| `GUARDPOST_ENABLE_PATTERNS`        | Enable pattern detection               |
+| `GUARDPOST_ENABLE_ENRICHMENT`      | Enable Gravatar + HIBP                 |
+| `OPENROUTER_API_KEY`               | OpenRouter API key for AI scoring      |
+| `IPINFO_TOKEN`                     | IPinfo.io token for proxy detection    |
+| `GUARDPOST_MAXMIND_DB`             | Path to MaxMind GeoLite2 ASN .mmdb     |
+| `HIBP_API_KEY`                     | Have I Been Pwned API key              |
 
 ### Storage Backends
 
-| Backend | Install | Use case |
-|---|---|---|
-| SQLite (default) | `pip install guardpost` | Single instance |
-| Redis | `pip install guardpost[redis]` | Distributed, production |
-| MongoDB | `pip install guardpost[mongo]` | Horizontal scaling |
-| PostgreSQL | `pip install guardpost[postgres]` | Existing infra |
+| Backend          | Install                           | Use case                |
+| ---------------- | --------------------------------- | ----------------------- |
+| SQLite (default) | `pip install guardpost`           | Single instance         |
+| Redis            | `pip install guardpost[redis]`    | Distributed, production |
+| MongoDB          | `pip install guardpost[mongo]`    | Horizontal scaling      |
+| PostgreSQL       | `pip install guardpost[postgres]` | Existing infra          |
 
 ## Development
 
