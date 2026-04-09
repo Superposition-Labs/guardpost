@@ -18,7 +18,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 from guardpost.engine import Guardpost
@@ -472,6 +472,15 @@ def create_app(
     # ------------------------------------------------------------------
     # Routes
     # ------------------------------------------------------------------
+
+    # Root redirect to dashboard
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return RedirectResponse(url="/dashboard")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return JSONResponse(content={}, status_code=204)
 
     # Built-in dashboard (auth-protected when API key is configured)
     _dashboard_html: str | None = None
