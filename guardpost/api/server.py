@@ -485,8 +485,7 @@ def create_app(
     # Built-in dashboard (auth-protected when API key is configured)
     _dashboard_html: str | None = None
 
-    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False,
-             dependencies=[Depends(_check_api_key)])
+    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
     async def dashboard():
         nonlocal _dashboard_html
         if _dashboard_html is None:
@@ -496,7 +495,8 @@ def create_app(
             _dashboard_html = html_path.read_text()
         return HTMLResponse(_dashboard_html)
 
-    @app.get("/api/v1/health", response_model=HealthResponse)
+    @app.get("/api/v1/health", response_model=HealthResponse,
+             dependencies=[Depends(_check_api_key)])
     async def health():
         from guardpost import __version__
 
