@@ -8,6 +8,7 @@ Start with:
 
 from __future__ import annotations
 
+import base64
 import hmac
 import ipaddress
 import logging
@@ -70,10 +71,58 @@ def _get_engine() -> Guardpost:
     return _engine
 
 
-def _check_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
-    if _api_key and (not x_api_key or not hmac.compare_digest(x_api_key, _api_key)):
-        raise HTTPException(
-            status_code=401, detail="Invalid or missing API key")
+def _extract_basic_auth_password(request: Request) -> str | None:
+    """Extract password from HTTP Basic Auth header, if present."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        _, _, password = decoded.partition(":")
+        return password
+    except Exception:
+        return None
+
+
+def _check_api_key(
+    request: Request,
+    x_api_key: Annotated[str | None, Header()] = None,
+) -> None:
+    """Verify API access via X-Api-Key header or HTTP Basic Auth password."""
+    if not _api_key:
+        return  # No key configured — API is open
+
+    # Try X-Api-Key header first (programmatic clients)
+    if x_api_key and hmac.compare_digest(x_api_key, _api_key):
+        return
+
+    # Fall back to Basic Auth password (browser dashboard)
+    basic_password = _extract_basic_auth_password(request)
+    if basic_password and hmac.compare_digest(basic_password, _api_key):
+        return
+
+    raise HTTPException(
+        status_code=401, detail="Invalid or missing API key")
+
+
+def _check_dashboard_auth(request: Request) -> None:
+    """Verify dashboard access via HTTP Basic Auth (password = API key).
+
+    When GUARDPOST_API_KEY is set, browsers will show a native login prompt.
+    Username is ignored; password must match the API key.
+    """
+    if not _api_key:
+        return  # No key configured — dashboard is open
+
+    basic_password = _extract_basic_auth_password(request)
+    if basic_password and hmac.compare_digest(basic_password, _api_key):
+        return
+
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": 'Basic realm="Guardpost Dashboard"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +523,8 @@ def create_app(
     # ------------------------------------------------------------------
 
     # Root redirect to dashboard
-    @app.get("/", include_in_schema=False)
+    @app.get("/", include_in_schema=False,
+             dependencies=[Depends(_check_dashboard_auth)])
     async def root():
         return RedirectResponse(url="/dashboard")
 
@@ -482,10 +532,12 @@ def create_app(
     async def favicon():
         return JSONResponse(content={}, status_code=204)
 
-    # Built-in dashboard (auth-protected when API key is configured)
+    # Built-in dashboard (HTTP Basic Auth when API key is configured)
     _dashboard_html: str | None = None
 
-    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/dashboard", response_class=HTMLResponse,
+             dependencies=[Depends(_check_dashboard_auth)],
+             include_in_schema=False)
     async def dashboard():
         nonlocal _dashboard_html
         if _dashboard_html is None:

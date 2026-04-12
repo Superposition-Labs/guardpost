@@ -1,6 +1,6 @@
 # Guardpost
 
-Self-hosted registration abuse detection. Answers **"is this registration suspicious?"** and recommends silent degradation instead of hard blocking, so attackers can't learn your detection signals.
+Self-hosted registration abuse detection service. Answers **"is this registration suspicious?"** via a REST API, and recommends silent degradation instead of hard blocking so attackers can't learn your detection signals.
 
 ## Features
 
@@ -19,33 +19,24 @@ Self-hosted registration abuse detection. Answers **"is this registration suspic
 
 ## Quick Start
 
-### Python library
+### Docker Compose (recommended)
 
 ```bash
-pip install guardpost
+git clone https://github.com/Superposition-Labs/guardpost
+cd guardpost
+GUARDPOST_API_KEY=your-secret-key docker compose up -d
 ```
 
-```python
-from guardpost.engine import Guardpost
+The default `docker-compose.yml` runs Guardpost with Redis Stack (RedisJSON, RedisTimeSeries, RediSearch, RedisBloom). The API is available at `http://localhost:8000`.
 
-gp = Guardpost()
-await gp.initialize()
-
-result = await gp.check("user@mailinator.com", ip_address="1.2.3.4")
-result.is_suspicious  # True
-result.risk_score     # 40
-result.reasons        # ["disposable_domain"]
-
-gp.is_disposable("test@yopmail.com")               # True
-gp.normalize_email("U.S.E.R+tag@gmail.com")         # user@gmail.com
-```
-
-### REST API
+### Docker (standalone)
 
 ```bash
-pip install guardpost[api]
-guardpost serve --port 8000 --api-key your-secret-key
+docker build -t guardpost .
+docker run -p 8000:8000 -e GUARDPOST_API_KEY=your-secret-key guardpost
 ```
+
+### Call the API
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/check \
@@ -54,33 +45,32 @@ curl -X POST http://localhost:8000/api/v1/check \
   -d '{"email": "user@mailinator.com", "ip_address": "1.2.3.4"}'
 ```
 
-### Docker Compose (with Redis)
+OpenAPI docs at `http://localhost:8000/docs`.
+
+### Python SDK
+
+Use the included client to talk to your Guardpost instance from Python:
 
 ```bash
-docker compose up -d
-```
-
-The default `docker-compose.yml` runs Guardpost with Redis Stack (RedisJSON, RedisTimeSeries, RediSearch, RedisBloom). Set `GUARDPOST_API_KEY` in your environment to enable auth.
-
-### CLI
-
-```bash
-guardpost check user@mailinator.com
-guardpost check user@gmail.com --ip 1.2.3.4
-```
-
-### Python SDK (remote API)
-
-```bash
-pip install guardpost[client]
+pip install httpx
 ```
 
 ```python
 from guardpost.client import GuardpostClient
 
-async with GuardpostClient("https://your-server.com", api_key="gp_...") as gp:
+async with GuardpostClient("http://localhost:8000", api_key="your-secret-key") as gp:
     result = await gp.check("user@mailinator.com", ip_address="1.2.3.4")
     ai = await gp.ai_score("xk3jf8@gmail.com")
+```
+
+### CLI (from source)
+
+```bash
+git clone https://github.com/Superposition-Labs/guardpost
+cd guardpost
+pip install -e ".[api]"
+guardpost check user@mailinator.com
+guardpost check user@gmail.com --ip 1.2.3.4
 ```
 
 ## Redis Storage
@@ -171,12 +161,12 @@ gp = Guardpost(
 
 ### Storage Backends
 
-| Backend          | Install                           | Use case                |
-| ---------------- | --------------------------------- | ----------------------- |
-| SQLite (default) | `pip install guardpost`           | Single instance         |
-| Redis            | `pip install guardpost[redis]`    | Distributed, production |
-| MongoDB          | `pip install guardpost[mongo]`    | Horizontal scaling      |
-| PostgreSQL       | `pip install guardpost[postgres]` | Existing infra          |
+| Backend          | Install extra                  | Use case                |
+| ---------------- | ------------------------------ | ----------------------- |
+| SQLite (default) | —                              | Single instance         |
+| Redis            | included in Docker image       | Distributed, production |
+| MongoDB          | `pip install -e ".[mongo]"`    | Horizontal scaling      |
+| PostgreSQL       | `pip install -e ".[postgres]"` | Existing infra          |
 
 ## Development
 

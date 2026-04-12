@@ -561,7 +561,7 @@ footer {
   function apiFetch(path) {
     const headers = {};
     if (apiKey) headers["X-Api-Key"] = apiKey;
-    return fetch(path, { headers });
+    return fetch(path, { headers, credentials: "same-origin" });
   }
 
   // —— Data fetching ——

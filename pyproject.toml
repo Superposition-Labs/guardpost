@@ -3,9 +3,9 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "guardpost"
+name = "guardpost-server"
 dynamic = ["version"]
-description = "Self-hosted registration abuse detection. Email validation + IP reputation + behavioral fraud analysis."
+description = "Self-hosted registration abuse detection service. Email validation + IP reputation + behavioral fraud analysis."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
