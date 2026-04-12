@@ -103,6 +103,8 @@ def _compute_risk_score(reasons: list[str], ip_status: str, is_banned: bool) -> 
         "disposable_domain": 40,
         "disposable_mx_infrastructure": 35,
         "no_mx_records": 30,
+        "suspicious_domain_keyword": 40,
+        "gibberish_username": 25,
         "numeric_domain": 15,
         "very_short_domain": 10,
         "multiple_aliases": 10,

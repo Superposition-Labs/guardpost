@@ -173,6 +173,8 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "cimario.com",
         "2200freefonts.com",
         "icubik.com",
+        # Apr 2026: temp-mail-go.info evaded blocklist via hyphenated variant
+        "temp-mail-go.info",
     ]
 )
 
@@ -298,6 +300,104 @@ DISPOSABLE_MX_HOSTS = frozenset(
         "temp-mail.org",
     ]
 )
+
+# === LAYER 4b: Suspicious domain name keywords ===
+# Domains whose name contains these keywords are almost certainly disposable,
+# even if they aren't in any blocklist yet (e.g. temp-mail-go.info).
+_SUSPICIOUS_DOMAIN_KEYWORDS = (
+    "temp-mail",
+    "tempmail",
+    "temp-email",
+    "tempemail",
+    "throwaway",
+    "disposable",
+    "trashmail",
+    "trash-mail",
+    "fakeemail",
+    "fake-email",
+    "fakemail",
+    "fake-mail",
+    "spammail",
+    "spam-mail",
+    "guerrillamail",
+    "guerrilla-mail",
+    "yopmail",
+    "mailinator",
+    "10minutemail",
+    "10-minute-mail",
+    "burnermail",
+    "burner-mail",
+)
+
+# === LAYER 4c: Gibberish / random username detection ===
+# Usernames that lack vowel structure are likely auto-generated (e.g. 3ob7nnj1da).
+_VOWELS = set("aeiou")
+
+
+def _is_gibberish_username(local: str) -> bool:
+    """Detect auto-generated / random-looking usernames.
+
+    Heuristics:
+    - Must be >= 6 chars (short names can look random but aren't)
+    - Very low vowel ratio (< 20%) in alpha characters + high digit ratio
+    - Interleaved digits and letters (3ob7nnj1da vs mark2001)
+    - Pure consonant strings with no vowels at all (>= 7 alpha chars)
+    """
+    if len(local) < 6:
+        return False
+
+    alpha_chars = [c for c in local if c.isalpha()]
+    digit_chars = [c for c in local if c.isdigit()]
+    total_alnum = len(alpha_chars) + len(digit_chars)
+
+    if total_alnum < 5:
+        return False
+
+    # Check vowel ratio in alpha characters
+    if alpha_chars:
+        vowel_count = sum(1 for c in alpha_chars if c.lower() in _VOWELS)
+        vowel_ratio = vowel_count / len(alpha_chars)
+    else:
+        vowel_ratio = 0.0
+
+    # Check digit mixing ratio
+    digit_ratio = len(digit_chars) / total_alnum if total_alnum else 0.0
+
+    # Check if digits are interleaved with letters (strong gibberish signal)
+    # e.g. "3ob7nnj1da" has digits scattered throughout
+    # vs "mark2001" has digits only at the end
+    has_interleaved_digits = False
+    if len(digit_chars) >= 2 and len(alpha_chars) >= 2:
+        # Find positions of digits in the alnum-only string
+        alnum_only = [c for c in local if c.isalnum()]
+        digit_positions = [i for i, c in enumerate(alnum_only) if c.isdigit()]
+        alpha_positions = [i for i, c in enumerate(alnum_only) if c.isalpha()]
+        if digit_positions and alpha_positions:
+            # Digits are interleaved if min digit position < max alpha position
+            # AND max digit position > min alpha position (digits aren't just prefix or suffix)
+            first_digit = min(digit_positions)
+            last_digit = max(digit_positions)
+            first_alpha = min(alpha_positions)
+            last_alpha = max(alpha_positions)
+            has_interleaved_digits = (first_digit < last_alpha) and (
+                last_digit > first_alpha)
+
+    # Strong signal: low vowels + interleaved digits = auto-generated
+    # e.g. "3ob7nnj1da" has 2 vowels/7 alpha = 28.6%, digits scattered
+    if vowel_ratio < 0.30 and digit_ratio >= 0.25 and has_interleaved_digits:
+        return True
+
+    # Original strict check: very few vowels + high digit ratio
+    if vowel_ratio < 0.20 and digit_ratio >= 0.30:
+        return True
+
+    # Also catch pure consonant strings with no vowels at all
+    # e.g. "xkjfqwrt" — but allow known patterns like abbreviations
+    if len(alpha_chars) >= 7 and vowel_ratio == 0.0:
+        return True
+
+    return False
+
 
 # === LAYER 5: DNS MX record cache ===
 _mx_cache: dict[str, bool] = {}
@@ -720,7 +820,7 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
 
     Layers:
     1. Disposable domain blocklist
-    2. Heuristic patterns (numeric domains, short domains)
+    2. Heuristic patterns (numeric domains, short domains, keyword domains)
     3. DNS MX record validation
     4. MX infrastructure check
 
@@ -744,6 +844,14 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
 
         if len(domain_name) <= 2:
             reasons.append("very_short_domain")
+
+        # Keyword-based detection: domain name contains disposable keywords
+        # e.g. temp-mail-go.info, my-tempmail.xyz, throwaway-email.net
+        domain_lower = domain.lower()
+        for keyword in _SUSPICIOUS_DOMAIN_KEYWORDS:
+            if keyword in domain_lower:
+                reasons.append("suspicious_domain_keyword")
+                break
 
         if not reasons:
             if not await check_domain_has_mx(domain):
@@ -781,6 +889,12 @@ async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
 
     if is_role_account(email):
         reasons.append("role_account")
+
+    # TODO: Replace with ML-based gibberish detector (HuggingFace model)
+    # Heuristic _is_gibberish_username() disabled — too many edge cases.
+    # clean_local = local.split("+")[0]
+    # if _is_gibberish_username(clean_local):
+    #     reasons.append("gibberish_username")
 
     is_suspicious = len(reasons) > 0
     if is_suspicious:
