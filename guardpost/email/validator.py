@@ -175,6 +175,15 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "icubik.com",
         # Apr 2026: temp-mail-go.info evaded blocklist via hyphenated variant
         "temp-mail-go.info",
+        # Apr 2026: caught via tempamail.com MX infrastructure
+        "mailfrs.com",
+        "ozvmail.com",
+        # Apr 2026: caught via sparkblink.org shared MX infrastructure
+        "forgecomet.org",
+        "cobaltbeam.com",
+        "worldplanck.com",
+        "databeta.net",
+        "beamcobalt.com",
     ]
 )
 
@@ -298,6 +307,9 @@ DISPOSABLE_MX_HOSTS = frozenset(
         "grr.la",
         "mailinator.com",
         "temp-mail.org",
+        # Apr 2026: shared MX infrastructure serving multiple throwaway domains
+        "sparkblink.org",
+        "centerzeta.com",
     ]
 )
 
