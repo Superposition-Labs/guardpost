@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/guardpost-header.jpg" alt="Guardpost header" width="100%" />
+</p>
+
 # Guardpost
 
 Self-hosted registration abuse detection service. Answers **"is this registration suspicious?"** via a REST API, and recommends silent degradation instead of hard blocking so attackers can't learn your detection signals.
