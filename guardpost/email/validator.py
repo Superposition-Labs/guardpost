@@ -184,6 +184,19 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "worldplanck.com",
         "databeta.net",
         "beamcobalt.com",
+        # Apr 2026: Cloudflare Email Routing abuse (no A record, no website)
+        # route[1-3].mx.cloudflare.net MX + zero A record = pure throwaway relay
+        "greance.us",
+        "demdon.online",
+        "chiencapcut.site",
+        "mooncapt.shop",
+        # Apr 2026: solutioncipher.com shared MX infrastructure
+        "spaceeclipse.com",
+        "linkzulu.com",
+        # Apr 2026: mail.tm subdomain MX infrastructure
+        "deltajohnsons.com",
+        # Apr 2026: centerzeta.com MX infrastructure (also caught by MX check)
+        "loopquant.net",
     ]
 )
 
@@ -310,6 +323,10 @@ DISPOSABLE_MX_HOSTS = frozenset(
         # Apr 2026: shared MX infrastructure serving multiple throwaway domains
         "sparkblink.org",
         "centerzeta.com",
+        # Apr 2026: solutioncipher.com serves spaceeclipse.com, linkzulu.com
+        "solutioncipher.com",
+        # Apr 2026: temporary-mail.net serves justdefinition.com (via mail.temporary-mail.net)
+        "temporary-mail.net",
     ]
 )
 
@@ -823,6 +840,21 @@ async def check_mx_points_to_disposable(domain: str) -> bool:
             return True
         except Exception:
             pass
+
+    # Cloudflare Email Routing abuse: route[1-3].mx.cloudflare.net is a free
+    # service legitimate businesses use — BUT legitimate users always have a website
+    # (A record). Pure email-only domains with CF routing and no A record are a
+    # strong throwaway signal (greance.us, demdon.online, mooncapt.shop pattern).
+    if mx_host.endswith(".mx.cloudflare.net"):
+        try:
+            await asyncio.to_thread(_resolve_dns, domain, "A")
+            # Has A record → could be a real site with Cloudflare email routing, allow
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            logger.warning(
+                "Domain %s uses Cloudflare Email Routing but has no website (no A record)", domain)
+            return True
+        except Exception:
+            pass  # Transient DNS error — give benefit of the doubt
 
     return False
 
