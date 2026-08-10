@@ -40,6 +40,24 @@ class TestNormalizeEmail:
     def test_other_plus_removed(self):
         assert normalize_email("user+tag@example.com") == "user@example.com"
 
+    def test_mailru_group_canonicalized(self):
+        # mail.ru / bk.ru / list.ru / inbox.ru share one mailbox namespace
+        assert normalize_email("abuser@bk.ru") == "abuser@mail.ru"
+        assert normalize_email("abuser@list.ru") == "abuser@mail.ru"
+        assert normalize_email("abuser@inbox.ru") == "abuser@mail.ru"
+        assert normalize_email("abuser@mail.ru") == "abuser@mail.ru"
+
+    def test_mailru_group_plus_alias_stripped(self):
+        assert normalize_email("abuser+promo@bk.ru") == "abuser@mail.ru"
+
+    def test_yandex_group_canonicalized(self):
+        # ya.ru / yandex.ru / yandex.com / regional TLDs share one account
+        assert normalize_email("abuser@ya.ru") == "abuser@yandex.ru"
+        assert normalize_email("abuser@yandex.com") == "abuser@yandex.ru"
+        assert normalize_email("abuser@yandex.by") == "abuser@yandex.ru"
+        assert normalize_email("abuser@yandex.kz") == "abuser@yandex.ru"
+        assert normalize_email("abuser@yandex.ua") == "abuser@yandex.ru"
+
     def test_preserves_case(self):
         assert normalize_email("User@Gmail.Com") == "user@gmail.com"
 
@@ -86,6 +104,15 @@ class TestIsDisposableEmail:
 
     def test_custom_blocklist(self):
         assert is_disposable_email("user@guerrillamail.com") is True
+
+    def test_cis_disposable_additions(self):
+        assert is_disposable_email("user@1secmail.com") is True
+        assert is_disposable_email("user@tempmail.plus") is True
+        assert is_disposable_email("user@vremennaya-pochta.ru") is True
+
+    def test_trusted_cis_providers_not_disposable(self):
+        for addr in ("user@ukr.net", "user@tut.by", "user@internet.ru", "user@i.ua"):
+            assert is_disposable_email(addr) is False
 
 
 # ---------------------------------------------------------------------------

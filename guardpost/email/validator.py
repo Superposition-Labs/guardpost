@@ -197,6 +197,18 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "deltajohnsons.com",
         # Apr 2026: centerzeta.com MX infrastructure (also caught by MX check)
         "loopquant.net",
+        # Jun 2026: CIS-popular disposable / API-driven temp-mail services
+        # commonly used for RU bonus farming, missing from the community list
+        "1secmail.com",
+        "1secmail.org",
+        "1secmail.net",
+        "tempmail.plus",
+        "etempmail.com",
+        "mailpoof.com",
+        "mail-temp.com",
+        "vremennaya-pochta.ru",
+        "temp-mails.com",
+        "tempmailbox.net",
     ]
 )
 
@@ -233,11 +245,30 @@ TRUSTED_EMAIL_DOMAINS = frozenset(
         "inbox.ru",
         "list.ru",
         "bk.ru",
+        "internet.ru",
+        "mail.ua",
         "vk.com",
         "yandex.ru",
         "yandex.com",
         "ya.ru",
+        "yandex.by",
+        "yandex.kz",
+        "yandex.ua",
         "rambler.ru",
+        "rambler.ua",
+        "lenta.ru",
+        "autorambler.ru",
+        "myrambler.ru",
+        "ro.ru",
+        "nm.ru",
+        "pochta.ru",
+        "qip.ru",
+        # CIS regional consumer providers
+        "ukr.net",
+        "i.ua",
+        "meta.ua",
+        "tut.by",
+        "mail.kz",
         # Regional providers
         "gmx.com",
         "gmx.de",
@@ -302,6 +333,17 @@ _EXTRA_B2C_DOMAINS = frozenset(
     ]
 )
 B2C_EMAIL_DOMAINS = TRUSTED_EMAIL_DOMAINS | _EXTRA_B2C_DOMAINS
+
+# === Alias-group domains (same mailbox across multiple domains) ===
+# Registering the same local-part under any sibling domain reaches the same
+# inbox, so these must be canonicalized in normalize_email() to stop
+# multi-accounting / bonus farming that bypasses the banned-email hash.
+MAILRU_GROUP_DOMAINS = frozenset(
+    ["mail.ru", "bk.ru", "list.ru", "inbox.ru"]
+)
+YANDEX_GROUP_DOMAINS = frozenset(
+    ["yandex.ru", "yandex.com", "ya.ru", "yandex.by", "yandex.kz", "yandex.ua"]
+)
 
 # === LAYER 4: Known disposable MX infrastructure ===
 # Domains whose MX records point to these hosts are disposable, even if
@@ -682,6 +724,20 @@ def normalize_email(email: str) -> str:
     elif domain in ("yahoo.com", "yahoo.co.uk", "yahoo.fr", "ymail.com"):
         if "-" in local:
             local = local.split("-")[0]
+    elif domain in MAILRU_GROUP_DOMAINS:
+        # Mail.ru group shares one namespace: user@mail.ru == user@bk.ru
+        # == user@list.ru == user@inbox.ru (same mailbox). Canonicalize so the
+        # banned-email hash and alias-collision checks can't be bypassed by
+        # registering the same name under each sibling domain.
+        if "+" in local:
+            local = local.split("+")[0]
+        domain = "mail.ru"
+    elif domain in YANDEX_GROUP_DOMAINS:
+        # Yandex shares one account across ya.ru / yandex.ru / yandex.com and the
+        # regional TLDs (by/kz/ua). Canonicalize to a single domain.
+        if "+" in local:
+            local = local.split("+")[0]
+        domain = "yandex.ru"
     elif "+" in local:
         local = local.split("+")[0]
 
