@@ -431,3 +431,20 @@ class TestNullMX:
         assert "gibberish_domain" in reasons
         assert "null_mx" in reasons
         assert is_susp is True
+
+
+class TestTypoTLDNarrowness:
+    """.om (Oman) and .cm (Cameroon) are real country TLDs.
+
+    An unanchored suffix test would rewrite legitimate domains, so the TLD rule
+    only fires when a known provider name precedes the bad suffix.
+    """
+
+    def test_provider_prefixed_tld_typo_corrected(self):
+        assert suggest_domain_correction("x@gmail.om") == "gmail.com"
+        assert suggest_domain_correction("x@yandex.ry") == "yandex.ru"
+        assert suggest_domain_correction("x@bk.ry") == "bk.ru"
+
+    def test_real_country_tlds_left_alone(self):
+        for domain in ("bank.om", "shop.cm", "omantel.om", "camtel.cm"):
+            assert suggest_domain_correction(f"x@{domain}") is None, domain

@@ -525,9 +525,13 @@ EMAIL_DOMAIN_TYPO_MAP = {
     "yandex.ry": "yandex.ru",
 }
 
-# A ".ru" typed with the wrong final key, and the same for ".com". Cheaper and
-# broader than enumerating every second-level name that might precede it.
-_TYPO_TLD_RE = re.compile(r"\.(ry|rue|ruu|cm|con|comm|ocm|om)$")
+# A ".ru" or ".com" typed with the wrong final key. Anchored to a known provider
+# name on purpose: ".om" (Oman) and ".cm" (Cameroon) are real country TLDs, so a
+# bare suffix test would rewrite legitimate domains such as bank.om.
+_TYPO_TLD_RE = re.compile(
+    r"^(gmail|googlemail|yandex|mail|bk|list|inbox|ya|outlook|hotmail|icloud|yahoo)"
+    r"\.(ry|rue|ruu|cm|con|comm|ocm|om)$"
+)
 
 # Machine-generated lookalikes: 501gmail.com, 536mail.ru. A digit run glued to a
 # provider name is never a real domain a person would own.
@@ -678,11 +682,11 @@ def suggest_domain_correction(email_or_domain: str) -> str | None:
     if corrected:
         return corrected
 
-    if _TYPO_TLD_RE.search(domain):
-        base = _TYPO_TLD_RE.sub("", domain)
-        # ".ry" family is a mistyped ".ru"; the rest are mistyped ".com".
-        suffix = ".ru" if domain.rsplit(".", 1)[-1].startswith("r") else ".com"
-        return f"{base}{suffix}"
+    tld_typo = _TYPO_TLD_RE.match(domain)
+    if tld_typo:
+        # The ".ry" family is a mistyped ".ru"; the rest are mistyped ".com".
+        suffix = ".ru" if tld_typo.group(2).startswith("r") else ".com"
+        return f"{tld_typo.group(1)}{suffix}"
 
     if _NUMERIC_PROVIDER_RE.match(domain):
         return re.sub(r"^\d+", "", domain)
