@@ -66,3 +66,62 @@ class TestGuardpostEngine:
         await gp.check("test@mailinator.com", ip_address="10.0.0.3", record_ip=False)
         status, _ = await gp.check_ip("10.0.0.3")
         assert status == "clean"
+
+
+@pytest.mark.asyncio
+class TestWeakSignalVerdict:
+    """A weak reason raises the score but must never decide the verdict."""
+
+    async def test_relay_scores_without_condemning(self, gp):
+        result = await gp.check("user@duck.com")
+        assert result.is_suspicious is False
+        assert result.risk_score > 0
+        assert "relay_domain" in result.reasons
+        assert "relay_domain" in result.weak_reasons
+
+    async def test_weak_reasons_are_a_subset_of_reasons(self, gp):
+        result = await gp.check("user@duck.com")
+        assert set(result.weak_reasons) <= set(result.reasons)
+
+    async def test_hard_reason_still_condemns(self, gp):
+        result = await gp.check("test@mailinator.com")
+        assert result.is_suspicious is True
+        assert result.weak_reasons == []
+
+    async def test_dot_noise_is_hard(self, gp):
+        # Verbatim from factory_ru — 71 such accounts, none of which ever paid.
+        result = await gp.check("pe.llig.rino.phi.lip.os.e7.60@gmail.com")
+        assert result.is_suspicious is True
+        assert "dot_noise_local" in result.reasons
+        assert result.risk_score >= 30
+
+    async def test_ordinary_gmail_unaffected(self, gp):
+        result = await gp.check("ivan.petrov@gmail.com")
+        assert result.is_suspicious is False
+        assert result.risk_score == 0
+
+    async def test_weak_reasons_survive_serialization(self, gp):
+        payload = (await gp.check("user@duck.com")).to_dict()
+        assert payload["weak_reasons"] == ["relay_domain"]
+        assert payload["is_suspicious"] is False
+        assert payload["subnet_status"] == "clean"
+
+
+@pytest.mark.asyncio
+class TestSubnetBurstReason:
+    async def test_rotating_pool_flagged_on_a_clean_ip(self, gp):
+        # Eight suspicious registrations, one per address — no per-IP counter
+        # ever moves, so only the /24 layer can see this.
+        for host in range(70, 78):
+            await gp.check("test@mailinator.com", ip_address=f"185.193.158.{host}")
+
+        result = await gp.check("realuser@gmail.com", ip_address="185.193.158.90")
+        assert result.subnet_status == "graylisted"
+        assert "subnet_burst:185.193.158.0/24" in result.reasons
+        assert result.is_suspicious is True
+
+    async def test_quiet_subnet_adds_nothing(self, gp):
+        result = await gp.check("realuser@gmail.com", ip_address="8.8.8.8")
+        assert result.subnet_status == "clean"
+        assert result.reasons == []
+        assert result.is_suspicious is False

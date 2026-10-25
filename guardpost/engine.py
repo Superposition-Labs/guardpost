@@ -15,9 +15,11 @@ from guardpost.email.validator import (
     is_role_account,
     is_suspicious_email,
     normalize_email,
+    partition_reasons,
+    split_reason,
     validate_email_format,
 )
-from guardpost.ip.reputation import IPReputationEngine
+from guardpost.ip.reputation import IPReputationEngine, subnet_key
 from guardpost.storage.memory import MemoryStorage
 
 if TYPE_CHECKING:
@@ -40,8 +42,14 @@ class CheckResult:
     is_suspicious: bool
     risk_score: int  # 0–100
     reasons: list[str] = field(default_factory=list)
+    # Subset of `reasons` that only raised the score. `is_suspicious` is False
+    # when every reason is weak, so a caller that acts on the verdict alone will
+    # never punish an address on a fuzzy signal.
+    weak_reasons: list[str] = field(default_factory=list)
     ip_status: str = "clean"
     ip_reason: str | None = None
+    subnet_status: str = "clean"
+    subnet_reason: str | None = None
     is_banned: bool = False
     normalized_email: str = ""
     # SMTP verification (Phase 2)
@@ -71,8 +79,11 @@ class CheckResult:
             "is_suspicious": self.is_suspicious,
             "risk_score": self.risk_score,
             "reasons": self.reasons,
+            "weak_reasons": self.weak_reasons,
             "ip_status": self.ip_status,
             "ip_reason": self.ip_reason,
+            "subnet_status": self.subnet_status,
+            "subnet_reason": self.subnet_reason,
             "is_banned": self.is_banned,
             "normalized_email": self.normalized_email,
             "smtp_status": self.smtp_status,
@@ -93,7 +104,12 @@ class CheckResult:
         }
 
 
-def _compute_risk_score(reasons: list[str], ip_status: str, is_banned: bool) -> int:
+def _compute_risk_score(
+    reasons: list[str],
+    ip_status: str,
+    is_banned: bool,
+    subnet_status: str = "clean",
+) -> int:
     """Compute a 0–100 risk score from detection signals."""
     if is_banned:
         return 100
@@ -103,6 +119,7 @@ def _compute_risk_score(reasons: list[str], ip_status: str, is_banned: bool) -> 
         "disposable_domain": 40,
         "disposable_mx_infrastructure": 35,
         "no_mx_records": 30,
+        "null_mx": 30,
         "suspicious_domain_keyword": 40,
         "gibberish_username": 25,
         "numeric_domain": 15,
@@ -110,6 +127,16 @@ def _compute_risk_score(reasons: list[str], ip_status: str, is_banned: bool) -> 
         "multiple_aliases": 10,
         "role_account": 5,
         "invalid_format": 50,
+        # Aug 2026 signals — see guardpost/email/validator.py for the evidence
+        # behind each. dot_noise_local scored 71 hits and 0 paying users on the
+        # factory_ru corpus, so it sits just under the disposable-domain tier.
+        "dot_noise_local": 30,
+        "typo_domain": 20,
+        "homograph_domain": 40,
+        "subnet_burst": 20,
+        # Weak tier: score only, never a verdict (see WEAK_REASONS).
+        "gibberish_domain": 10,
+        "relay_domain": 10,
         # SMTP reasons
         "smtp_undeliverable": 40,
         "smtp_risky": 15,
@@ -124,13 +151,19 @@ def _compute_risk_score(reasons: list[str], ip_status: str, is_banned: bool) -> 
     }
     for reason in reasons:
         # Handle dynamic reasons like "datacenter_range:AWS"
-        base = reason.split(":")[0] if ":" in reason else reason
-        score += weights.get(base, 10)
+        score += weights.get(split_reason(reason), 10)
 
     if ip_status == "blacklisted":
         score += 30
     elif ip_status == "graylisted":
         score += 15
+
+    # A bad /24 counts for less than a bad IP: the block is shared, so some of
+    # its neighbours are innocent.
+    if subnet_status == "blacklisted":
+        score += 20
+    elif subnet_status == "graylisted":
+        score += 10
 
     return min(score, 100)
 
@@ -243,6 +276,8 @@ class Guardpost:
         # IP check
         ip_status = "clean"
         ip_reason = None
+        subnet_status = "clean"
+        subnet_reason = None
         ip_type = None
         is_datacenter = False
         is_vpn = False
@@ -252,8 +287,18 @@ class Guardpost:
 
         if ip_address:
             ip_status, ip_reason = await self.ip_engine.check_ip(ip_address)
+            # Read the /24 before recording, so this registration does not
+            # contribute to the verdict passed on itself.
+            subnet_status, subnet_reason = await self.ip_engine.check_subnet(ip_address)
             if record_ip:
                 await self.ip_engine.record_registration(ip_address, is_suspicious)
+
+            # A dirty /24 whose individual IPs all look clean is the rotating
+            # proxy pool signature — surface it as its own reason so the pattern
+            # is visible in the logs, not just folded into the score.
+            if subnet_status != "clean" and ip_status == "clean":
+                cidr = subnet_key(ip_address)
+                reasons.append(f"subnet_burst:{cidr}")
 
             # Proxy/VPN/datacenter detection
             if check_proxy and self.proxy_detector:
@@ -327,9 +372,16 @@ class Guardpost:
                 logger.debug("HIBP lookup failed for ***@%s", email.split("@")
                              [-1] if "@" in email else "unknown", exc_info=True)
 
-        # Combine
-        overall_suspicious = is_suspicious or is_banned or ip_status != "clean"
-        risk_score = _compute_risk_score(reasons, ip_status, is_banned)
+        # Combine. Only HARD reasons decide the verdict — every reason feeds the
+        # score. `is_suspicious` from the email layer is recomputed here rather
+        # than reused, because reasons added since (SMTP, proxy, subnet) have
+        # tiers of their own.
+        hard_reasons, weak_reasons = partition_reasons(reasons)
+        overall_suspicious = (
+            bool(hard_reasons) or is_banned or ip_status != "clean"
+        )
+        risk_score = _compute_risk_score(
+            reasons, ip_status, is_banned, subnet_status)
 
         # Periodic purge of old registration data (PII minimization)
         now = time.time()
@@ -346,8 +398,11 @@ class Guardpost:
             is_suspicious=overall_suspicious,
             risk_score=risk_score,
             reasons=reasons,
+            weak_reasons=weak_reasons,
             ip_status=ip_status,
             ip_reason=ip_reason,
+            subnet_status=subnet_status,
+            subnet_reason=subnet_reason,
             is_banned=is_banned,
             normalized_email=normalize_email(email),
             smtp_status=smtp_status,

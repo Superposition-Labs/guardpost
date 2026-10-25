@@ -197,6 +197,47 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "deltajohnsons.com",
         # Apr 2026: centerzeta.com MX infrastructure (also caught by MX check)
         "loopquant.net",
+        # Jun 2026: CIS-popular disposable / API-driven temp-mail services
+        # commonly used for RU bonus farming, missing from the community list
+        "1secmail.com",
+        "1secmail.org",
+        "1secmail.net",
+        "tempmail.plus",
+        "etempmail.com",
+        "mailpoof.com",
+        "mail-temp.com",
+        "vremennaya-pochta.ru",
+        "temp-mails.com",
+        "tempmailbox.net",
+        # Aug 2026: found in a factory_ru sweep of 10,695 users. Every domain
+        # below was DNS-verified against a throwaway MX farm or a blackhole
+        # host, and none has ever had a paying user.
+        #   self-hosted single-domain farms (keep an A record, so the
+        #   "self-referencing MX with no website" rule misses them)
+        "imxwe.com",
+        "ygwpr.com",
+        "dbwot.com",
+        "mailpotus.com",
+        "mailbinmart.com",
+        "emailinbo.live",
+        "fl-v.com",
+        #   shared farm MX: kuromee / cloakfast / 24.email / hope-mail / netxmail
+        "starlight.store",
+        "labsharmony.com",
+        "duskilon.com",
+        "fromru.com",
+        "eclipsezen.com",
+        #   (indox.ru and maul.ru also point at void.blackhole.mx, but they are
+        #   typos of inbox.ru / mail.ru, so they belong to the typo map.)
+        #   NOTE: the typo-squatters found in the same sweep (gnail.com,
+        #   gmai.com, gmaii.com, gmil.com, icloug.com, yabdex.ru, xmail.ru,
+        #   501gmail.com) live in EMAIL_DOMAIN_TYPO_MAP instead, not here. They
+        #   are a different failure — the user meant a real provider — and
+        #   listing them twice would score one address under two reasons.
+        #   misc throwaway providers
+        "trashlify.com",
+        "tmail.ae",
+        "smallmailo.my",
     ]
 )
 
@@ -233,11 +274,36 @@ TRUSTED_EMAIL_DOMAINS = frozenset(
         "inbox.ru",
         "list.ru",
         "bk.ru",
+        "internet.ru",
+        "mail.ua",
         "vk.com",
         "yandex.ru",
         "yandex.com",
         "ya.ru",
+        "yandex.by",
+        "yandex.kz",
+        "yandex.ua",
         "rambler.ru",
+        "rambler.ua",
+        "lenta.ru",
+        "autorambler.ru",
+        "myrambler.ru",
+        "ro.ru",
+        "nm.ru",
+        "pochta.ru",
+        "qip.ru",
+        # CIS regional consumer providers
+        "ukr.net",
+        "i.ua",
+        "meta.ua",
+        "tut.by",
+        "mail.kz",
+        # Synthetic internal domains: the Telegram bot mints
+        # telegram_<id>@factory.bot accounts, and a soft-deleted user's address
+        # is rewritten to @deleted.local. Neither resolves, so without this they
+        # would trip no_mx_records on every check.
+        "factory.bot",
+        "deleted.local",
         # Regional providers
         "gmx.com",
         "gmx.de",
@@ -303,6 +369,17 @@ _EXTRA_B2C_DOMAINS = frozenset(
 )
 B2C_EMAIL_DOMAINS = TRUSTED_EMAIL_DOMAINS | _EXTRA_B2C_DOMAINS
 
+# === Alias-group domains (same mailbox across multiple domains) ===
+# Registering the same local-part under any sibling domain reaches the same
+# inbox, so these must be canonicalized in normalize_email() to stop
+# multi-accounting / bonus farming that bypasses the banned-email hash.
+MAILRU_GROUP_DOMAINS = frozenset(
+    ["mail.ru", "bk.ru", "list.ru", "inbox.ru"]
+)
+YANDEX_GROUP_DOMAINS = frozenset(
+    ["yandex.ru", "yandex.com", "ya.ru", "yandex.by", "yandex.kz", "yandex.ua"]
+)
+
 # === LAYER 4: Known disposable MX infrastructure ===
 # Domains whose MX records point to these hosts are disposable, even if
 # the domain itself isn't in any blocklist.
@@ -327,8 +404,29 @@ DISPOSABLE_MX_HOSTS = frozenset(
         "solutioncipher.com",
         # Apr 2026: temporary-mail.net serves justdefinition.com (via mail.temporary-mail.net)
         "temporary-mail.net",
+        # Aug 2026: shared MX farms found in the factory_ru sweep
+        "kuromee.com",        # starlight.store
+        "cloakfast.org",      # labsharmony.com
+        "24.email",           # duskilon.com
+        "hope-mail.com",      # fromru.com
+        "netxmail.com",       # eclipsezen.com
+        "temp-mailo.org",     # greance.us
+        "fex.plus",           # mailto.plus
+        #   typo-squatter catch-all infrastructure
+        "h-email.net",        # gmai.com
+        "oweb.cn",            # gnail.com
+        "yaxmail.net",        # gmil.com
+        # Aug 2026: blackhole MX — the host accepts and discards every message,
+        # so the address is unreachable by design (indox.ru, maul.ru).
+        "blackhole.mx",
     ]
 )
+
+# === LAYER 4a: MX hosts that mean "this domain cannot receive mail" ===
+# A domain publishing one of these is not merely suspicious, it is undeliverable.
+# "." is the RFC 7505 null MX; "localhost" is a misconfiguration squatters leave
+# behind (gmaii.com). Both currently satisfy a naive bool(answers) MX check.
+_NULL_MX_HOSTS = frozenset(["", ".", "localhost", "localhost.localdomain"])
 
 # === LAYER 4b: Suspicious domain name keywords ===
 # Domains whose name contains these keywords are almost certainly disposable,
@@ -356,6 +454,107 @@ _SUSPICIOUS_DOMAIN_KEYWORDS = (
     "10-minute-mail",
     "burnermail",
     "burner-mail",
+    # Aug 2026: bare "trash" catches trashlify.com, which the compound
+    # "trashmail"/"trash-mail" entries above miss.
+    "trash",
+    "tempmailo",
+    "mailtemp",
+)
+
+# === LAYER 4d: Lookalike / typo domains ===
+# Domains that are one keystroke from a major provider. Two distinct kinds live
+# here and both matter:
+#   - dead typos (gmail.con, mail.ry) — the user never receives anything, so the
+#     right product action is to suggest the correction, not to deny a bonus;
+#   - live squatters (gnail.com, gmai.com, indox.ru) — they run a catch-all MX,
+#     so the DNS layers pass them cleanly and only this map stops them.
+# Mirrored from the Factory deployment's EMAIL_DOMAIN_TYPO_MAP, plus the
+# Aug 2026 factory_ru additions.
+EMAIL_DOMAIN_TYPO_MAP = {
+    # gmail
+    "gmai.com": "gmail.com",
+    "gmail.cm": "gmail.com",
+    "gmail.co": "gmail.com",
+    "gmail.comm": "gmail.com",
+    "gmail.con": "gmail.com",
+    "gmail.ocm": "gmail.com",
+    "gmail.om": "gmail.com",
+    "gmailc.om": "gmail.com",
+    "gmaill.com": "gmail.com",
+    "gmal.com": "gmail.com",
+    "gmil.com": "gmail.com",
+    "gnail.com": "gmail.com",
+    "gemail.com": "gmail.com",
+    # hotmail
+    "hotmai.com": "hotmail.com",
+    "hotmall.com": "hotmail.com",
+    "hotmial.com": "hotmail.com",
+    "hotmil.com": "hotmail.com",
+    # icloud
+    "iclod.com": "icloud.com",
+    "icloud.co": "icloud.com",
+    "icloud.con": "icloud.com",
+    "iclould.com": "icloud.com",
+    "icoud.com": "icloud.com",
+    # mail.ru
+    "mail.tu": "mail.ru",
+    "mail.u": "mail.ru",
+    "maill.ru": "mail.ru",
+    "meil.ru": "mail.ru",
+    "mial.ru": "mail.ru",
+    # outlook
+    "outlok.com": "outlook.com",
+    "outloock.com": "outlook.com",
+    # yandex
+    "yadnex.ru": "yandex.ru",
+    "yandeks.ru": "yandex.ru",
+    "yandex.tu": "yandex.ru",
+    "yandex.u": "yandex.ru",
+    "yandx.ru": "yandex.ru",
+    "yndex.ru": "yandex.ru",
+    # Aug 2026: observed in factory_ru
+    "gmaii.com": "gmail.com",
+    "gomil.com": "gmail.com",
+    "icloug.com": "icloud.com",
+    "indox.ru": "inbox.ru",
+    "maul.ru": "mail.ru",
+    "yabdex.ru": "yandex.ru",
+    "xmail.ru": "mail.ru",
+    "mail.ry": "mail.ru",
+    "bk.ry": "bk.ru",
+    "yandex.ry": "yandex.ru",
+}
+
+# A ".ru" or ".com" typed with the wrong final key. Anchored to a known provider
+# name on purpose: ".om" (Oman) and ".cm" (Cameroon) are real country TLDs, so a
+# bare suffix test would rewrite legitimate domains such as bank.om.
+_TYPO_TLD_RE = re.compile(
+    r"^(gmail|googlemail|yandex|mail|bk|list|inbox|ya|outlook|hotmail|icloud|yahoo)"
+    r"\.(ry|rue|ruu|cm|con|comm|ocm|om)$"
+)
+
+# Machine-generated lookalikes: 501gmail.com, 536mail.ru. A digit run glued to a
+# provider name is never a real domain a person would own.
+_NUMERIC_PROVIDER_RE = re.compile(r"^\d{1,4}(gmail|gmai|mail|yandex|inbox)\.[a-z]{2,6}$")
+
+# === LAYER 4e: Email relay / alias providers ===
+# Legitimate privacy services, NOT disposable — but one person can mint an
+# unlimited number of addresses through them, so they are a weak signal only.
+RELAY_EMAIL_DOMAINS = frozenset(
+    [
+        "duck.com",
+        "relay.firefox.com",
+        "mozmail.com",
+        "simplelogin.io",
+        "simplelogin.com",
+        "aleeas.com",
+        "slmail.me",
+        "anonaddy.me",
+        "anonaddy.com",
+        "addy.io",
+        "33mail.com",
+        "spamgourmet.com",
+    ]
 )
 
 # === LAYER 4c: Gibberish / random username detection ===
@@ -426,6 +625,165 @@ def _is_gibberish_username(local: str) -> bool:
         return True
 
     return False
+
+
+# === LAYER 4f: Dot-noise Gmail addresses ===
+# Gmail ignores dots, so a.b.c@gmail.com and abc@gmail.com are one mailbox.
+# That makes normalize_email() collapse aliases of the SAME name — but it does
+# nothing against the opposite trick: take a plausible full name, sprinkle
+# random dots through it, and every variant becomes a DIFFERENT canonical
+# address. A human types zero or one dot; a generator types many.
+#
+# Measured on 4,374 Gmail addresses in factory_ru (Aug 2026):
+#   0 dots  3,744 users  181 paid
+#   1 dot     453 users   18 paid
+#   2 dots     99 users    3 paid
+#   3+ dots    78 users    0 paid   <-- no legitimate user has ever been here
+_DOT_NOISE_DOMAINS = frozenset(["gmail.com", "googlemail.com"])
+_DOT_NOISE_MIN_DOTS = 3
+_DOT_NOISE_MIN_RATIO = 0.20
+
+
+def has_dot_noise(email: str) -> bool:
+    """Detect machine-inserted dot noise in a Gmail-family local part.
+
+    Fires on 4+ dots outright, or on 3 dots when they make up at least 20% of
+    the local part — the ratio guard stops a genuinely long name from tripping
+    on three ordinary separators.
+    """
+    domain = get_email_domain(email)
+    if domain not in _DOT_NOISE_DOMAINS:
+        return False
+
+    local = email.lower().split("@")[0].split("+")[0]
+    if not local:
+        return False
+
+    dots = local.count(".")
+    if dots >= _DOT_NOISE_MIN_DOTS + 1:
+        return True
+    return dots >= _DOT_NOISE_MIN_DOTS and dots / len(local) >= _DOT_NOISE_MIN_RATIO
+
+
+# === LAYER 4g: Lookalike / typo domain detection ===
+def suggest_domain_correction(email_or_domain: str) -> str | None:
+    """Return the domain the user probably meant, or None.
+
+    Recognises three shapes: an exact entry in EMAIL_DOMAIN_TYPO_MAP, a mistyped
+    TLD (.ry for .ru, .con for .com), and a digit-prefixed provider name
+    (501gmail.com).
+    """
+    domain = get_email_domain(email_or_domain) if "@" in email_or_domain \
+        else email_or_domain.lower().strip()
+    if not domain:
+        return None
+
+    corrected = EMAIL_DOMAIN_TYPO_MAP.get(domain)
+    if corrected:
+        return corrected
+
+    tld_typo = _TYPO_TLD_RE.match(domain)
+    if tld_typo:
+        # The ".ry" family is a mistyped ".ru"; the rest are mistyped ".com".
+        suffix = ".ru" if tld_typo.group(2).startswith("r") else ".com"
+        return f"{tld_typo.group(1)}{suffix}"
+
+    if _NUMERIC_PROVIDER_RE.match(domain):
+        return re.sub(r"^\d+", "", domain)
+
+    return None
+
+
+def is_typo_domain(email: str) -> bool:
+    """Check whether the domain is a lookalike of a real provider."""
+    return suggest_domain_correction(email) is not None
+
+
+# === LAYER 4h: Homograph domains ===
+# A domain that mixes scripts, or renders as a trusted domain once Cyrillic
+# lookalikes are folded to Latin, is an impersonation attempt — factory_ru
+# contains "gmail.сом" with a Cyrillic с/о/м.
+_CONFUSABLE_FOLD = str.maketrans({
+    "а": "a", "с": "c", "е": "e", "о": "o", "р": "p", "х": "x", "у": "y",
+    "і": "i", "ѕ": "s", "ј": "j", "ԁ": "d", "һ": "h", "ӏ": "l", "м": "m",
+    "к": "k", "в": "b", "т": "t", "н": "h", "г": "r",
+})
+
+
+def is_homograph_domain(email: str) -> bool:
+    """Detect a non-ASCII domain that impersonates a trusted one."""
+    domain = get_email_domain(email)
+    if not domain or domain.isascii():
+        return False
+
+    folded = domain.translate(_CONFUSABLE_FOLD)
+    if not folded.isascii():
+        return False
+    return folded in TRUSTED_EMAIL_DOMAINS or folded in EMAIL_DOMAIN_TYPO_MAP
+
+
+# === LAYER 4i: Gibberish domain labels ===
+# Deliberately a WEAK signal. On real data it also matches legitimate Russian
+# academic and corporate domains (rudn.ru, kpfu.ru, ptkivs.ru, tomsk.cc), so it
+# must never condemn an address on its own — it only raises the risk score.
+_GIBBERISH_DOMAIN_MIN_LEN = 4
+_GIBBERISH_DOMAIN_MAX_LEN = 6
+_GIBBERISH_DOMAIN_MAX_VOWEL_RATIO = 0.25
+
+
+def has_gibberish_domain(email: str) -> bool:
+    """Detect a short, vowel-poor domain label such as ygwpr.com or dbwot.com."""
+    domain = get_email_domain(email)
+    if not domain or domain in TRUSTED_EMAIL_DOMAINS or domain in RELAY_EMAIL_DOMAINS:
+        return False
+
+    label = domain.split(".")[0]
+    if not label.isalpha() or not label.isascii():
+        return False
+    if not _GIBBERISH_DOMAIN_MIN_LEN <= len(label) <= _GIBBERISH_DOMAIN_MAX_LEN:
+        return False
+
+    vowel_ratio = sum(c in _VOWELS for c in label) / len(label)
+    return vowel_ratio <= _GIBBERISH_DOMAIN_MAX_VOWEL_RATIO
+
+
+def is_relay_email(email: str) -> bool:
+    """Check whether the address belongs to a privacy relay / alias provider."""
+    return get_email_domain(email) in RELAY_EMAIL_DOMAINS
+
+
+# === Reason tiers ===
+# A HARD reason is enough on its own to call an address suspicious. A WEAK
+# reason raises the risk score but never condemns, which is what lets fuzzy
+# rules ship at all: gibberish_domain matches ygwpr.com and dbwot.com, but it
+# also matches rudn.ru and kpfu.ru, and no rule that can zero a real student's
+# welcome credits belongs in the hard tier.
+#
+# Every reason string that is NOT listed here is hard by default, so forgetting
+# to classify a new signal fails safe (it flags) rather than silently vanishing.
+WEAK_REASONS = frozenset(
+    [
+        "gibberish_domain",
+        "relay_domain",
+    ]
+)
+
+
+def has_hard_reason(reasons: list[str]) -> bool:
+    """Return True if any reason is strong enough to condemn the address."""
+    return any(split_reason(r) not in WEAK_REASONS for r in reasons)
+
+
+def split_reason(reason: str) -> str:
+    """Strip the detail suffix from a reason ("subnet_burst:1.2.3.0/24")."""
+    return reason.split(":", 1)[0]
+
+
+def partition_reasons(reasons: list[str]) -> tuple[list[str], list[str]]:
+    """Split reasons into (hard, weak), preserving order within each tier."""
+    hard = [r for r in reasons if split_reason(r) not in WEAK_REASONS]
+    weak = [r for r in reasons if split_reason(r) in WEAK_REASONS]
+    return hard, weak
 
 
 # === LAYER 5: DNS MX record cache ===
@@ -682,6 +1040,20 @@ def normalize_email(email: str) -> str:
     elif domain in ("yahoo.com", "yahoo.co.uk", "yahoo.fr", "ymail.com"):
         if "-" in local:
             local = local.split("-")[0]
+    elif domain in MAILRU_GROUP_DOMAINS:
+        # Mail.ru group shares one namespace: user@mail.ru == user@bk.ru
+        # == user@list.ru == user@inbox.ru (same mailbox). Canonicalize so the
+        # banned-email hash and alias-collision checks can't be bypassed by
+        # registering the same name under each sibling domain.
+        if "+" in local:
+            local = local.split("+")[0]
+        domain = "mail.ru"
+    elif domain in YANDEX_GROUP_DOMAINS:
+        # Yandex shares one account across ya.ru / yandex.ru / yandex.com and the
+        # regional TLDs (by/kz/ua). Canonicalize to a single domain.
+        if "+" in local:
+            local = local.split("+")[0]
+        domain = "yandex.ru"
     elif "+" in local:
         local = local.split("+")[0]
 
@@ -779,7 +1151,10 @@ async def check_domain_has_mx(domain: str) -> bool:
     elif result == _DNS_ERROR:
         has_mx = True  # Transient failure — benefit of the doubt
     else:
-        has_mx = True
+        # A null MX (RFC 7505, exchange ".") is an answer, but it declares that
+        # the domain accepts no mail at all. Without this guard a bare
+        # bool(answers) test would call such a domain deliverable.
+        has_mx = result not in _NULL_MX_HOSTS
 
     if len(_mx_cache) < _MX_CACHE_MAX_SIZE:
         _mx_cache[domain] = has_mx
@@ -788,6 +1163,22 @@ async def check_domain_has_mx(domain: str) -> bool:
         logger.warning("Domain has no MX records: %s", domain)
 
     return has_mx
+
+
+async def check_domain_has_null_mx(domain: str) -> bool:
+    """Check whether a domain publishes an RFC 7505 null MX.
+
+    Distinct from "no MX at all": the operator has explicitly declared the
+    domain unable to receive mail. Shares _resolve_mx_host()'s cache, so this
+    costs no extra DNS query.
+    """
+    result = await _resolve_mx_host(domain)
+    if result is None or result == _DNS_ERROR:
+        return False
+    if result in _NULL_MX_HOSTS:
+        logger.warning("Domain %s publishes a null MX — it accepts no mail", domain)
+        return True
+    return False
 
 
 async def check_mx_points_to_disposable(domain: str) -> bool:
@@ -864,9 +1255,10 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
 
     Layers:
     1. Disposable domain blocklist
-    2. Heuristic patterns (numeric domains, short domains, keyword domains)
-    3. DNS MX record validation
-    4. MX infrastructure check
+    2. Lookalike / homograph domain detection
+    3. Heuristic patterns (numeric domains, short domains, keyword domains)
+    4. DNS MX record validation (including RFC 7505 null MX)
+    5. MX infrastructure check
 
     Returns:
         (is_suspicious, reasons)
@@ -876,10 +1268,26 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
     if is_disposable_email(email):
         reasons.append("disposable_domain")
 
+    # A homograph domain renders as a trusted one, so it has to be tested before
+    # the trusted short-circuit below — "gmail.сом" must never look trusted.
+    if is_homograph_domain(email):
+        reasons.append("homograph_domain")
+
     domain = get_email_domain(email)
     if domain:
         if domain in TRUSTED_EMAIL_DOMAINS:
             return len(reasons) > 0, reasons
+
+        # Lookalikes have live catch-all MX as often as not, so the DNS layers
+        # below cannot be relied on to catch them.
+        if is_typo_domain(email):
+            reasons.append("typo_domain")
+
+        if has_gibberish_domain(email):
+            reasons.append("gibberish_domain")
+
+        if is_relay_email(email):
+            reasons.append("relay_domain")
 
         domain_name = domain.split(".")[0]
         digit_count = sum(c.isdigit() for c in domain_name)
@@ -897,13 +1305,18 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
                 reasons.append("suspicious_domain_keyword")
                 break
 
-        if not reasons:
-            if not await check_domain_has_mx(domain):
+        # Only a HARD reason short-circuits the DNS layers. Guarding on
+        # `reasons` instead would let a weak signal such as gibberish_domain
+        # silently suppress the MX checks that do the real work.
+        if not has_hard_reason(reasons):
+            if await check_domain_has_null_mx(domain):
+                reasons.append("null_mx")
+            elif not await check_domain_has_mx(domain):
                 reasons.append("no_mx_records")
             elif await check_mx_points_to_disposable(domain):
                 reasons.append("disposable_mx_infrastructure")
 
-    return len(reasons) > 0, reasons
+    return has_hard_reason(reasons), reasons
 
 
 async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
@@ -934,13 +1347,18 @@ async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
     if is_role_account(email):
         reasons.append("role_account")
 
+    # Gmail-family only, so this has to run here rather than inside
+    # is_suspicious_email(), which returns early for every trusted domain.
+    if has_dot_noise(email):
+        reasons.append("dot_noise_local")
+
     # TODO: Replace with ML-based gibberish detector (HuggingFace model)
     # Heuristic _is_gibberish_username() disabled — too many edge cases.
     # clean_local = local.split("+")[0]
     # if _is_gibberish_username(clean_local):
     #     reasons.append("gibberish_username")
 
-    is_suspicious = len(reasons) > 0
+    is_suspicious = has_hard_reason(reasons)
     if is_suspicious:
         domain = get_email_domain(email)
         logger.info(

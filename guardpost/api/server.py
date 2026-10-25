@@ -162,8 +162,13 @@ class CheckResponse(BaseModel):
     is_suspicious: bool
     risk_score: int
     reasons: list[str]
+    # Reasons that only raised the score. Never enough on their own to make
+    # is_suspicious true — see WEAK_REASONS in guardpost/email/validator.py.
+    weak_reasons: list[str] = []
     ip_status: str
     ip_reason: str | None
+    subnet_status: str = "clean"
+    subnet_reason: str | None = None
     is_banned: bool
     normalized_email: str
     smtp_status: str | None = None
