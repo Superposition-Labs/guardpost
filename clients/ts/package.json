@@ -1,0 +1,54 @@
+{
+  "name": "@superposition-labs/guardpost",
+  "version": "0.4.0",
+  "description": "TypeScript client for Guardpost, the self-hosted signup abuse detection service (zero dependencies)",
+  "license": "MIT",
+  "author": "Superposition Labs",
+  "type": "module",
+  "engines": {
+    "node": ">=20.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Superposition-Labs/guardpost.git",
+    "directory": "clients/ts"
+  },
+  "homepage": "https://github.com/Superposition-Labs/guardpost/tree/main/clients/ts#readme",
+  "bugs": "https://github.com/Superposition-Labs/guardpost/issues",
+  "keywords": [
+    "guardpost",
+    "abuse-detection",
+    "signup",
+    "fraud"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../openapi/guardpost.json --default-non-nullable false --output src/schema.d.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-schema.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:generated": "npm run generate && npm run build && git diff --exit-code -- src/schema.d.ts dist",
+    "check:pack": "node scripts/check-pack.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
+  }
+}

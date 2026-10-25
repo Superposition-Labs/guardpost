@@ -1,0 +1,67 @@
+name: Publish TypeScript client to npm
+
+# Opt-in: does nothing until the repository secret NPM_TOKEN exists (an npm
+# automation token with publish rights on the @superposition-labs scope).
+# Until then consumers vendor clients/ts/dist/index.js (Factory v2 does).
+# Runs on a published GitHub Release (release.yml creates one per v* tag) or by
+# hand. clients/ts/package.json "version" must equal the release tag without
+# its "v", so bump it in the release PR.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::NPM_TOKEN is not set: the npm publish is skipped"
+          fi
+
+  publish:
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    defaults:
+      run:
+        working-directory: clients/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:generated
+      - run: npm run check:pack
+      - name: The package version matches the release
+        if: github.event_name == 'release'
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(node -p 'require("./package.json").version')"
+          if [ "$want" != "$have" ]; then
+            echo "::error::clients/ts/package.json is $have but the release is $want"
+            exit 1
+          fi
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -27,11 +27,21 @@ class MigrationError(RuntimeError):
     """A migration failed; the database is left at the previous version."""
 
 
+# A migration whose SQL holds this line drops personal data: the runner VACUUMs
+# afterwards, because DROP/DELETE only move pages to the freelist and SQLite
+# keeps their old bytes (plaintext emails, for 0002) in the file until reused.
+VACUUM_MARKER = "-- guardpost:vacuum-after"
+
+
 @dataclass(frozen=True)
 class Migration:
     version: int
     name: str
     sql: str
+
+    @property
+    def vacuum_after(self) -> bool:
+        return any(line.strip() == VACUUM_MARKER for line in self.sql.splitlines())
 
 
 def sqlite_migrations() -> list[Migration]:
@@ -150,4 +160,20 @@ def apply_sqlite_migrations(
                 f"migration {migration.version:04d}_{migration.name} failed: {exc}"
             ) from exc
         applied.append(migration)
+    if any(m.vacuum_after for m in applied):
+        purge_free_pages(conn)
     return applied
+
+
+def purge_free_pages(conn: sqlite3.Connection) -> int:
+    """Rewrite the database without free pages; returns how many there were.
+
+    ``VACUUM`` rebuilds the file from live rows only, and the TRUNCATE
+    checkpoint moves the result into the main file and empties the WAL, so
+    no deleted bytes are left in either (or in a later Litestream snapshot).
+    Needs autocommit mode and no open transaction.
+    """
+    free = conn.execute("PRAGMA freelist_count").fetchone()[0]
+    conn.execute("VACUUM")
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return free

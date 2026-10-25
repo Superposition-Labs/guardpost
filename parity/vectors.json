@@ -1,5 +1,5 @@
 {
- "ruleset": "2026.11-1",
+ "ruleset": "2026.11-2",
  "provenance": {
   "functions": "Expected values computed by running Factory v2's TypeScript (origin/main 2fa0e461a4ba: same-person.ts, device-repeat.ts, ip-reputation.ts, email.ts, email-validation.ts) under Node 26 type stripping, with v2's stubDnsResolver semantics for email_flags and email_gate.",
   "scenarios": "Expected decisions derived from register.ts, oauth.ts, device-repeat.ts, same-person.ts and referrals/signup.ts. Factory v2's parity test runs the same scenarios through assessSignup.",
@@ -2893,6 +2893,10 @@
   {
    "id": "dns-cache",
    "description": "v2 caches MX answers for 6 h; Guardpost's v2 check asks its resolver every time (the default dnspython path caches for the process lifetime)."
+  },
+  {
+   "id": "ip-reason-detail",
+   "description": "Factory emits graylisted_ip:<status reason> and blacklisted_ip:<status reason> (e.g. graylisted_ip:5 suspicious registrations). The shared reputation's counts include every tenant's signups, so Guardpost emits the status only (graylisted_ip:graylisted, blacklisted_ip:blacklisted) and no ip_reason/subnet_reason, unless the tenant sets ip.reason_detail = full and is alone on the instance (or the operator allows it). Compare these two reasons on the kind. subnet_burst:<cidr> is unchanged: the /24 is the caller's own."
   }
  ]
 }

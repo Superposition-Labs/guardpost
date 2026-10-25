@@ -93,6 +93,37 @@ def db_02(tmp_path):
     return path
 
 
+def _file_bytes(path) -> bytes:
+    """The database file and its WAL, as a copy of the volume would hold them."""
+    wal = path.with_name(path.name + "-wal")
+    return path.read_bytes() + (wal.read_bytes() if wal.exists() else b"")
+
+
+def test_upgrade_leaves_no_plaintext_in_free_pages(db_02):
+    # DROP TABLE only frees the pages: without the VACUUM after 0002 their bytes,
+    # the 0.2 plaintext registrations, stay in the file and in any copy of it.
+    conn = sqlite3.connect(str(db_02))
+    conn.executemany(
+        "INSERT INTO registrations (email, username, domain, ip_address, timestamp) VALUES (?, ?, ?, ?, ?)",
+        [(f"bulk.victim{i}@gmail.com", f"bulk.victim{i}", "gmail.com", "198.51.100.9", time.time())
+         for i in range(3000)])
+    conn.commit()
+    conn.close()
+    assert b"bulk.victim" in _file_bytes(db_02)
+
+    storage = SQLiteStorage(db_02, legacy_tenant="factory")
+    asyncio.run(storage.initialize())
+    try:
+        blob = _file_bytes(db_02)
+        assert b"victim" not in blob
+        conn = sqlite3.connect(str(db_02))
+        assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM bans").fetchone()[0] == 2
+        conn.close()
+    finally:
+        asyncio.run(storage.close())
+
+
 def test_upgrade_from_02(db_02):
     storage = SQLiteStorage(db_02, legacy_tenant="factory")
     asyncio.run(storage.initialize())

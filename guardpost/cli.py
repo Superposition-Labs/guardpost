@@ -118,6 +118,9 @@ def _add_admin_commands(sub) -> None:
     migrate = sub.add_parser("migrate", help="Apply pending database migrations")
     _db_arg(migrate)
     migrate.add_argument("--status", action="store_true", help="Only show the schema version and pending migrations")
+    migrate.add_argument("--vacuum", action="store_true",
+                         help="Also rewrite the file without free pages (a database migrated by 0.3.0, which kept "
+                              "the dropped 0.2 registrations in free pages)")
 
     tenant = sub.add_parser("tenant", help="Manage tenants").add_subparsers(dest="action", required=True)
     t = tenant.add_parser("create", help="Create a tenant")
@@ -240,6 +243,12 @@ async def _admin(args) -> None:
                       f"now at version {max(applied)}")
             else:
                 print(f"{storage.db_path}: up to date (version {current})")
+            if args.vacuum:
+                from guardpost.storage.migrations import purge_free_pages
+
+                with storage._lock:
+                    free = purge_free_pages(storage._get_conn())
+                print(f"{storage.db_path}: vacuumed ({free} free pages dropped)")
             return
 
         with storage._lock:
@@ -307,9 +316,9 @@ def _read_rows(path: str) -> list[dict]:
 async def _ip_reputation_import(storage, args) -> None:
     from pydantic import ValidationError
 
-    from guardpost.api.v2 import IPReputationImport
     from guardpost.ledger.service import ip_record_from_import, merge_ip_records
     from guardpost.ledger.store import LedgerView
+    from guardpost.models import IPReputationImport
 
     raw = _read_rows(args.file)
     try:
@@ -381,6 +390,23 @@ async def _tenant(storage, args, json) -> None:
     tenant.updated_at = utcnow()
     await storage.save_tenant(tenant)
     print(json.dumps(tenant.to_dict(), indent=2))
+    await _warn_reason_detail(storage, tenant)
+
+
+async def _warn_reason_detail(storage, tenant) -> None:
+    """ip.reason_detail=full is honoured only for a lone tenant (or with the operator override)."""
+    import os
+
+    from guardpost.engine import ALLOW_FULL_REASON_DETAIL_ENV
+
+    if tenant.config.ip.reason_detail != "full" or os.environ.get(ALLOW_FULL_REASON_DETAIL_ENV):
+        return
+    with_keys = {k.tenant_id for k in await storage.list_api_keys()}
+    others = [t.id for t in await storage.list_tenants() if t.active and t.id != tenant.id and t.id in with_keys]
+    if others:
+        print(f"warning: ip.reason_detail=full is ignored while other tenants are active ({', '.join(others)}): "
+              f"responses show the IP status only. {ALLOW_FULL_REASON_DETAIL_ENV}=1 overrides this.",
+              file=sys.stderr)
 
 
 async def _key(storage, args) -> None:

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from guardpost import __version__
 from guardpost.api.deps import CheckScope, DashboardScope, EngineDep, LifecycleScope, TenantDep
 from guardpost.email.validator import classify_domain_typo
+from guardpost.models import HealthResponse
 
 router = APIRouter()
 
@@ -199,11 +200,6 @@ class UnbanRequest(BaseModel):
     email: str = Field(max_length=254)
 
 
-class HealthResponse(BaseModel):
-    status: str = "ok"
-    version: str
-
-
 class AIScoreRequest(BaseModel):
     email: str = Field(max_length=254)
 
@@ -310,7 +306,11 @@ async def check_registration(ctx: CheckScope, engine: EngineDep, req: CheckReque
     except ImportError:
         pass
 
-    return CheckResponse(**result.to_dict())
+    data = result.to_dict()
+    if not await engine.shows_full_ip_detail_v1(ctx.tenant):
+        # Shared IP status reasons count other tenants' signups (see Guardpost.reason_detail).
+        data["ip_reason"] = data["subnet_reason"] = None
+    return CheckResponse(**data)
 
 @router.post(
     "/api/v1/email/validate",
@@ -361,6 +361,8 @@ async def smtp_verify(ctx: CheckScope, engine: EngineDep, req: SMTPVerifyRequest
 async def check_ip(ctx: CheckScope, engine: EngineDep, req: IPCheckRequest):
     """Check IP reputation."""
     status, reason = await engine.check_ip(req.ip_address)
+    if not await engine.shows_full_ip_detail_v1(ctx.tenant):
+        reason = None
     return IPCheckResponse(ip_address=req.ip_address, status=status, reason=reason)
 
 @router.post(
@@ -370,10 +372,11 @@ async def check_ip(ctx: CheckScope, engine: EngineDep, req: IPCheckRequest):
 async def record_ip(ctx: LifecycleScope, engine: EngineDep, req: IPRecordRequest):
     """Record a registration from an IP."""
     record = await engine.record_ip_registration(req.ip_address, req.is_suspicious, tenant=ctx.tenant)
+    full = await engine.shows_full_ip_detail_v1(ctx.tenant)
     return IPCheckResponse(
         ip_address=req.ip_address,
         status=record.status,
-        reason=record.status_reason,
+        reason=record.status_reason if full else None,
     )
 
 @router.post(

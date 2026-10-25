@@ -49,6 +49,35 @@ def test_migrate(gp):
     assert "up to date" in out
 
 
+def test_migrate_vacuum(gp):
+    gp("migrate")
+    conn = sqlite3.connect(gp.db)
+    conn.execute("CREATE TABLE scratch (v TEXT)")
+    conn.executemany("INSERT INTO scratch VALUES (?)", [(f"left.behind{i}@gmail.com",) for i in range(2000)])
+    conn.commit()
+    conn.execute("DROP TABLE scratch")
+    conn.commit()
+    assert conn.execute("PRAGMA freelist_count").fetchone()[0] > 0
+    conn.close()
+    out, _ = gp("migrate", "--vacuum")
+    assert "up to date" in out and "vacuumed" in out
+    data = open(gp.db, "rb").read()
+    assert b"left.behind" not in data
+
+
+def test_reason_detail_full_warns_when_not_alone(gp):
+    gp("migrate")
+    gp("tenant", "create", "factory")
+    gp("key", "create", "--tenant", "factory", "--label", "a", "--scopes", "check")
+    out, err = gp("tenant", "config-set", "factory", "ip.reason_detail=full")
+    assert json.loads(out)["config"]["ip"] == {"reason_detail": "full"} and err == ""
+    gp("tenant", "create", "shop")
+    gp("key", "create", "--tenant", "shop", "--label", "b", "--scopes", "check")
+    _, err = gp("tenant", "config-set", "factory", "ip.reason_detail=full")
+    assert "ignored while other tenants are active (shop)" in err
+    gp("tenant", "config-set", "factory", "ip.reason_detail=counts", ok=False)
+
+
 def test_commands_refuse_an_unmigrated_database(gp):
     _, err = gp("tenant", "list", ok=False)
     assert "guardpost migrate" in err

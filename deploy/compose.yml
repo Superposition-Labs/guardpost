@@ -1,0 +1,102 @@
+# Guardpost, one instance per region (Global on Hetzner, RU on its RU host), as its own compose
+# project next to the app's stack. On the host this directory is /opt/guardpost:
+#   /opt/guardpost/compose.yml, litestream.yml, scripts/, .env (from env.example, chmod 600)
+#   docker compose -f /opt/guardpost/compose.yml up -d
+# docs/OPERATIONS.md has first boot, the 0.2 sidecar migration, backups and the restore drill.
+#
+# - The API answers only on the app's docker network (alias "guardpost", port 8000). Nothing is
+#   published; compose.dashboard.yml adds 127.0.0.1:8200 for an SSH-tunnelled dashboard.
+# - Metrics listen on 9100 inside the network only (Prometheus scrapes guardpost:9100).
+# - One process, one uvicorn worker (guardpost serve): SQLite with BEGIN IMMEDIATE writes and
+#   the in-process retention purge. Never scale this service.
+# - Litestream (profile "litestream", on in env.example) replicates /data/guardpost.db to S3.
+name: guardpost
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  guardpost:
+    # Pinned to a release minor; RU sets GUARDPOST_IMAGE to its mirror (GHCR pulls from Russia fail).
+    image: ${GUARDPOST_IMAGE:-ghcr.io/superposition-labs/guardpost:0.4}
+    pull_policy: missing
+    restart: unless-stopped
+    init: true
+    environment:
+      GUARDPOST_DB_PATH: /data/guardpost.db
+      GUARDPOST_STORAGE: sqlite
+      GUARDPOST_MULTI_TENANT: "1"
+      GUARDPOST_SECRET: ${GUARDPOST_SECRET:?GUARDPOST_SECRET is not set (see env.example)}
+      GUARDPOST_LEGACY_TENANT: ${GUARDPOST_LEGACY_TENANT:-factory}
+      GUARDPOST_API_KEY: ${GUARDPOST_API_KEY:-}
+      GUARDPOST_RATE_LIMIT: ${GUARDPOST_RATE_LIMIT:-0}
+      GUARDPOST_TRUSTED_PROXIES: ${GUARDPOST_TRUSTED_PROXIES:-}
+      GUARDPOST_TRUSTED_EXTRA_DOMAINS: ${GUARDPOST_TRUSTED_EXTRA_DOMAINS:-}
+      GUARDPOST_ENABLE_PATTERNS: ${GUARDPOST_ENABLE_PATTERNS:-}
+      GUARDPOST_PURGE_INTERVAL: ${GUARDPOST_PURGE_INTERVAL:-3600}
+      GUARDPOST_CORS_ORIGINS: ${GUARDPOST_CORS_ORIGINS:-}
+      GUARDPOST_ALLOW_FULL_REASON_DETAIL: ${GUARDPOST_ALLOW_FULL_REASON_DETAIL:-}
+      GUARDPOST_ENABLE_METRICS: "1"
+      GUARDPOST_METRICS_PORT: "9100"
+    volumes:
+      - data:/data
+    networks:
+      app:
+        aliases: [guardpost]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "http://127.0.0.1:8000/readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 512m
+    stop_grace_period: 20s
+    logging: *logging
+
+  litestream:
+    profiles: [litestream]
+    # 0.5.x, as Factory v2. RU sets LITESTREAM_IMAGE to its GHCR mirror.
+    image: ${LITESTREAM_IMAGE:-litestream/litestream:0.5.17}
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    restart: unless-stopped
+    # The guardpost image's user: Litestream must create the -shm/-wal files the app can open.
+    user: "999:999"
+    depends_on:
+      guardpost:
+        condition: service_healthy
+    # Required when the profile is on (Litestream refuses to start without them); not ":?" here,
+    # because compose interpolates every service, even one whose profile is off.
+    environment:
+      LITESTREAM_BUCKET: ${LITESTREAM_BUCKET:-}
+      LITESTREAM_PATH: ${LITESTREAM_PATH:-guardpost}
+      LITESTREAM_ENDPOINT: ${LITESTREAM_ENDPOINT:-}
+      LITESTREAM_REGION: ${LITESTREAM_REGION:-auto}
+      LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID:-}
+      LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY:-}
+      LITESTREAM_SIGN_PAYLOAD: ${LITESTREAM_SIGN_PAYLOAD:-}
+      LITESTREAM_REQUIRE_CONTENT_MD5: ${LITESTREAM_REQUIRE_CONTENT_MD5:-}
+      LITESTREAM_HEARTBEAT_URL: ${LITESTREAM_HEARTBEAT_URL:-}
+    volumes:
+      - data:/data
+      - ./litestream.yml:/etc/litestream.yml:ro
+    networks:
+      app:
+        # Prometheus scrapes guardpost-litestream:9090.
+        aliases: [guardpost-litestream]
+    mem_limit: 256m
+    stop_grace_period: 30s
+    logging: *logging
+
+volumes:
+  data:
+    # A fixed name, so a copy of the 0.2 sidecar's volume can be prepared before the first `up`
+    # (docs/OPERATIONS.md, "Migrating from the 0.2 sidecar").
+    name: ${GUARDPOST_VOLUME:-guardpost_data}
+
+networks:
+  app:
+    external: true
+    name: ${GUARDPOST_NETWORK:-factory_network}

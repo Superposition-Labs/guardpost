@@ -1,0 +1,34 @@
+# Litestream 0.5.x: continuous replication of /data/guardpost.db to any S3-compatible store.
+# Every ${...} comes from compose.yml's litestream environment (values from /opt/guardpost/.env).
+#   Global: Cloudflare R2 (or Hetzner Object Storage)
+#     LITESTREAM_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com   LITESTREAM_REGION=auto
+#   RU: Yandex Object Storage (RU data stays in Russia)
+#     LITESTREAM_ENDPOINT=https://storage.yandexcloud.net   LITESTREAM_REGION=ru-central1
+#     LITESTREAM_SIGN_PAYLOAD=true   LITESTREAM_REQUIRE_CONTENT_MD5=true
+# An empty LITESTREAM_SIGN_PAYLOAD / LITESTREAM_REQUIRE_CONTENT_MD5 keeps Litestream's default.
+# 0.5 has no age encryption: protection is the store's at-rest encryption plus a key scoped to
+# this one bucket/prefix. The nightly snapshot (scripts/backup-snapshot.sh) can be age-encrypted.
+addr: ":9090"
+
+# Pinged only while replication is healthy; empty disables it.
+heartbeat-url: ${LITESTREAM_HEARTBEAT_URL}
+heartbeat-interval: 5m
+
+snapshot:
+  interval: 24h
+  retention: 336h   # 14 days of point-in-time restore
+
+dbs:
+  - path: /data/guardpost.db
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      path: ${LITESTREAM_PATH}
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: ${LITESTREAM_REGION}
+      force-path-style: true
+      sign-payload: ${LITESTREAM_SIGN_PAYLOAD}
+      require-content-md5: ${LITESTREAM_REQUIRE_CONTENT_MD5}
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+      sync-interval: 1s
