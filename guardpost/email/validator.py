@@ -1,7 +1,7 @@
 """Email validation engine for registration abuse detection.
 
 Provides multi-layer email validation:
-- Layer 1: Community-maintained disposable email blocklist (5,200+ domains)
+- Layer 1: Community-maintained disposable email blocklist (9,900+ domains)
 - Layer 2: Custom blocklist for manually confirmed disposable domains (170+)
 - Layer 3: Trusted domain whitelist (skip expensive DNS checks)
 - Layer 4: MX infrastructure detection (catch fresh throwaway domains)
@@ -20,16 +20,22 @@ import dns.resolver
 
 logger = logging.getLogger(__name__)
 
-# === LAYER 1: Community-maintained disposable email blocklist (5,200+ domains) ===
+# === LAYER 1: Community-maintained disposable email blocklist (9,900+ domains) ===
 # Source: https://github.com/disposable-email-domains/disposable-email-domains
-_BLOCKLIST_PATH = Path(__file__).resolve().parent.parent / \
+BLOCKLIST_PATH = Path(__file__).resolve().parent.parent / \
     "data" / "disposable_email_blocklist.conf"
+_BLOCKLIST_PATH = BLOCKLIST_PATH  # backward-compatible alias
+
+
+def parse_blocklist(text: str) -> frozenset[str]:
+    """Parse a blocklist file body: one domain per line, '#' starts a comment."""
+    return frozenset(
+        line.strip().lower() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 try:
-    _community_blocklist = {
-        line.strip() for line in _BLOCKLIST_PATH.read_text().splitlines() if line.strip() and not line.startswith("#")
-    }
-    COMMUNITY_DISPOSABLE_DOMAINS: frozenset[str] = frozenset(
-        _community_blocklist)
+    COMMUNITY_DISPOSABLE_DOMAINS: frozenset[str] = parse_blocklist(BLOCKLIST_PATH.read_text())
     logger.info("Loaded %d community disposable domains",
                 len(COMMUNITY_DISPOSABLE_DOMAINS))
 except FileNotFoundError:
@@ -238,6 +244,14 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "trashlify.com",
         "tmail.ae",
         "smallmailo.my",
+        # Oct 2026: removed from the community list upstream, but the Factory
+        # still flags them (its vendored copy of the list predates the removal).
+        # Pinned here so a list refresh cannot silently un-flag them; recorded
+        # as known divergences from upstream.
+        "atomicmail.io",
+        "ip6.li",
+        "iwi.net",
+        "mailhub.pro",
     ]
 )
 

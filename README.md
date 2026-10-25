@@ -8,7 +8,7 @@ Self-hosted registration abuse detection service. Answers **"is this registratio
 
 ## Features
 
-- **5-layer email validation**: disposable blocklist (5,200+ domains) → heuristic patterns → DNS MX → MX infrastructure fingerprinting → role account detection
+- **5-layer email validation**: disposable blocklist (9,900+ domains) → heuristic patterns → DNS MX → MX infrastructure fingerprinting → role account detection
 - **Email normalization**: Gmail dot tricks, +aliases, Yahoo hyphen aliases
 - **IP reputation**: automatic graylist/blacklist with configurable thresholds
 - **Banned email system**: SHA-256 normalized hash storage
@@ -104,7 +104,7 @@ Redis configuration is passed via `GUARDPOST_REDIS_URL` environment variable (e.
 
 | Layer                | Catches                                               | Example                         |
 | -------------------- | ----------------------------------------------------- | ------------------------------- |
-| Disposable blocklist | 5,200+ known domains                                  | mailinator.com                  |
+| Disposable blocklist | 9,900+ known domains                                  | mailinator.com                  |
 | Heuristic patterns   | Numeric domains (≥4 digits), short domains (≤2 chars) | test@1234abc.com                |
 | DNS MX validation    | Domains with no mail server                           | test@doesnotexist.xyz           |
 | MX infrastructure    | Fresh domains using disposable mail backends          | Domains pointing to mail.tm     |
