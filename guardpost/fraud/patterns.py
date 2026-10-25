@@ -145,6 +145,10 @@ class PatternDetector:
             return
         username, domain = email.rsplit("@", 1)
         ts = timestamp if timestamp is not None else time.time()
+        # Drop entries that left the window, so memory stays bounded even if
+        # analyze() is never called (entries arrive in time order).
+        if self._registrations and self._registrations[0].timestamp < time.time() - self.window_seconds:
+            self._prune_window()
         self._registrations.append(
             Registration(
                 email=email,

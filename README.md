@@ -165,9 +165,15 @@ gp = Guardpost(
 
 | Variable                           | Purpose                                |
 | ---------------------------------- | -------------------------------------- |
-| `GUARDPOST_API_KEY`                | API key for authentication             |
-| `GUARDPOST_REDIS_URL`              | Redis connection URL                   |
-| `GUARDPOST_RATE_LIMIT`             | Max requests/min per IP (0 = disabled) |
+| `GUARDPOST_API_KEY`                | The legacy single API key (key id `legacy`, scopes `legacy,check,dashboard`) |
+| `GUARDPOST_LEGACY_TENANT`          | Tenant the legacy key and pre-0.3 data belong to (default `default`) |
+| `GUARDPOST_ALLOW_OPEN`             | `1` = serve unauthenticated when no API key exists at all (development only; otherwise boot is refused) |
+| `GUARDPOST_SECRET`                 | Instance secret for per-tenant keyed hashes. Back it up separately; if unset a generated one is kept in the database |
+| `GUARDPOST_STORAGE`                | `sqlite` or `redis` (default: `redis` when `GUARDPOST_REDIS_URL` is set, else `sqlite`) |
+| `GUARDPOST_MULTI_TENANT`           | `1` = refuse to boot on a backend without tenancy instead of running single-tenant |
+| `GUARDPOST_DB_PATH`                | SQLite database path                   |
+| `GUARDPOST_REDIS_URL`              | Redis URL: the storage backend, or with `GUARDPOST_STORAGE=sqlite` rate limiting only |
+| `GUARDPOST_RATE_LIMIT`             | Default max requests/min per tenant, and per IP for unauthenticated traffic (0 = disabled) |
 | `GUARDPOST_TRUSTED_PROXIES`        | Comma-separated CIDRs of reverse proxies allowed to set `X-Forwarded-For` (see below) |
 | `GUARDPOST_ENABLE_METRICS`         | Serve Prometheus metrics on a separate port |
 | `GUARDPOST_METRICS_PORT`           | Metrics port (default `9100`)          |
@@ -181,7 +187,50 @@ gp = Guardpost(
 | `IPINFO_TOKEN`                     | IPinfo.io token for proxy detection    |
 | `GUARDPOST_MAXMIND_DB`             | Path to MaxMind GeoLite2 ASN .mmdb     |
 | `HIBP_API_KEY`                     | Have I Been Pwned API key              |
-| `GUARDPOST_TRUSTED_EXTRA_DOMAINS`  | Comma-separated deployment-specific domains to trust (e.g. `factory.bot,deleted.local`), on top of the shared trusted list |
+| `GUARDPOST_TRUSTED_EXTRA_DOMAINS`  | Comma-separated deployment-specific domains to trust (e.g. `factory.bot,deleted.local`), on top of the shared trusted list. Instance default; a tenant's `email.trusted_extra_domains` replaces it |
+
+### Tenants and API keys
+
+One instance serves several tenants (apps). Tenants share network and domain
+intel — IP and /24 reputation, disposable domains, MX — and nothing else: bans,
+stats, the timeline, the dashboard and the pattern report are per tenant. The
+API key decides the tenant; no request field can choose another one.
+
+```bash
+guardpost migrate                                   # also runs automatically on boot
+guardpost tenant create factory --name Factory --region ru
+guardpost key create --tenant factory --label factory-v2 --scopes check,lifecycle --expires 90d
+guardpost key list --tenant factory
+guardpost key rotate <key-id> --grace 7d            # new key printed once; old one expires in 7 days
+guardpost key revoke <key-id>
+guardpost tenant config-set factory email.reason_tiers.typo_domain=hard rate_limit_per_minute=600
+guardpost tenant show factory                       # effective config + keys (never the secrets)
+guardpost ip whitelist --global 203.0.113.0/24      # shared by every tenant
+```
+
+- Keys look like `gpk_<id>_<secret>`. Only their SHA-256 is stored, and
+  `key create` / `key rotate` print the key once, alone on stdout. Send it as
+  `X-Api-Key`, `Authorization: Bearer`, or the dashboard's Basic password.
+- Scopes: `check` (evaluation routes), `lifecycle` (bans, `/ip/record`),
+  `dashboard` (stats, timeline, pattern report, dashboard). The legacy key's
+  `legacy` scope covers every v1 route.
+- `GUARDPOST_API_KEY` keeps working unchanged for v1 clients: each boot hashes
+  it into `api_keys` as key `legacy` for `GUARDPOST_LEGACY_TENANT`, and revokes
+  that row when the variable is unset.
+- With no key at all the server refuses to start unless `GUARDPOST_ALLOW_OPEN=1`.
+- Tenant config (`guardpost tenant config-set`, validated; unknown keys rejected):
+  `region`, `region_rules.ua_domain` (soft-flag every `*.ua` address, trusted
+  or not; on by default for region `ru`), `email.trusted_extra_domains`,
+  `email.reason_tiers`, `rate_limit_per_minute` (one bucket for all the
+  tenant's keys), `retention.signals_days` (35), and `device_repeat`,
+  `same_person`, `referral` (stored for the v2 rules).
+- Privacy: no email is written to disk. Per-tenant activity is kept as events
+  holding an HMAC of the IP under a tenant key derived from `GUARDPOST_SECRET`.
+  Pattern analysis runs on an in-memory window, which starts empty after a
+  restart.
+- Tenancy needs the SQLite backend. On Redis Guardpost runs single-tenant (one
+  key, one ban list); set `GUARDPOST_STORAGE=sqlite` to keep Redis for rate
+  limiting only.
 
 ### Client IP behind a reverse proxy
 
@@ -211,7 +260,7 @@ template (`/api/v1/check`), never by the raw path. Requires the `metrics` extra
 
 | Backend          | Install extra                  | Use case                |
 | ---------------- | ------------------------------ | ----------------------- |
-| SQLite (default) | —                              | Single instance         |
+| SQLite (default) | —                              | Single instance; the only backend with tenancy |
 | Redis            | included in Docker image       | Distributed, production |
 | MongoDB          | `pip install -e ".[mongo]"`    | Horizontal scaling      |
 | PostgreSQL       | `pip install -e ".[postgres]"` | Existing infra          |

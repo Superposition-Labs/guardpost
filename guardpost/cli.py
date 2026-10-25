@@ -82,6 +82,8 @@ def main(argv: list[str] | None = None) -> None:
     proxy_parser.add_argument("--maxmind-db", default=None,
                               help="Path to MaxMind GeoLite2 ASN database (.mmdb) file")
 
+    _add_admin_commands(sub)
+
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -92,9 +94,255 @@ def main(argv: list[str] | None = None) -> None:
         _smtp(args)
     elif args.command == "proxy":
         _proxy(args)
+    elif args.command in _ADMIN_COMMANDS:
+        sys.exit(_run_admin(args))
     else:
         parser.print_help()
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Admin commands: migrate, tenant, key, ip (operate on the SQLite database
+# directly; a running server sees the changes on its next request)
+# ---------------------------------------------------------------------------
+
+_ADMIN_COMMANDS = ("migrate", "tenant", "key", "ip")
+
+
+def _db_arg(p) -> None:
+    p.add_argument("--db", default=None,
+                   help="SQLite database path (default: $GUARDPOST_DB_PATH or ~/.guardpost/guardpost.db)")
+
+
+def _add_admin_commands(sub) -> None:
+    migrate = sub.add_parser("migrate", help="Apply pending database migrations")
+    _db_arg(migrate)
+    migrate.add_argument("--status", action="store_true", help="Only show the schema version and pending migrations")
+
+    tenant = sub.add_parser("tenant", help="Manage tenants").add_subparsers(dest="action", required=True)
+    t = tenant.add_parser("create", help="Create a tenant")
+    t.add_argument("tenant_id", help="Tenant id: lowercase letters, digits, '-' or '_'")
+    t.add_argument("--name", default=None, help="Display name (default: the id)")
+    t.add_argument("--region", default=None, help="Region, e.g. global or ru (ru enables the ua_domain rule)")
+    t.add_argument("--config", default=None, help="Initial config as JSON")
+    _db_arg(t)
+    t = tenant.add_parser("list", help="List tenants")
+    _db_arg(t)
+    t = tenant.add_parser("show", help="Show a tenant, its effective config and its keys")
+    t.add_argument("tenant_id")
+    _db_arg(t)
+    t = tenant.add_parser("config-set", help="Change a tenant's config (validated)")
+    t.add_argument("tenant_id")
+    t.add_argument("assignments", nargs="*", metavar="key.path=value",
+                   help="e.g. region=ru  email.reason_tiers.typo_domain=hard  rate_limit_per_minute=600  "
+                        "(values are JSON when valid JSON; null unsets)")
+    t.add_argument("--json", dest="patch_json", default=None, help="A JSON merge patch")
+    t.add_argument("--replace", action="store_true", help="Replace the whole config with --json instead of merging")
+    _db_arg(t)
+    t = tenant.add_parser("set-status", help="Suspend or reactivate a tenant (suspended: every key gets 403)")
+    t.add_argument("tenant_id")
+    t.add_argument("status", choices=["active", "suspended"])
+    _db_arg(t)
+
+    key = sub.add_parser("key", help="Manage API keys").add_subparsers(dest="action", required=True)
+    k = key.add_parser("create", help="Create an API key (printed once)")
+    k.add_argument("--tenant", required=True)
+    k.add_argument("--label", required=True, help="What uses the key, e.g. factory-v2-prod")
+    k.add_argument("--scopes", required=True,
+                   help="Comma-separated: check, lifecycle, dashboard, backfill, admin, legacy")
+    k.add_argument("--expires", default=None, help="Lifetime, e.g. 90d, 12h, 2w (default: never)")
+    _db_arg(k)
+    k = key.add_parser("list", help="List API keys (never the secrets)")
+    k.add_argument("--tenant", default=None)
+    _db_arg(k)
+    k = key.add_parser("revoke", help="Revoke an API key now")
+    k.add_argument("key_id")
+    _db_arg(k)
+    k = key.add_parser("rotate", help="Issue a replacement key; the old one expires after --grace")
+    k.add_argument("key_id")
+    k.add_argument("--grace", default="7d", help="How long the old key keeps working (default: 7d)")
+    _db_arg(k)
+
+    ip = sub.add_parser("ip", help="Shared IP reputation").add_subparsers(dest="action", required=True)
+    i = ip.add_parser("whitelist", help="Whitelist an IP or /24 for every tenant")
+    i.add_argument("--global", dest="is_global", action="store_true",
+                   help="Required: the shared reputation table is global (per-tenant overrides come with v2)")
+    i.add_argument("target", metavar="ip|cidr", help="An address, or an IPv4 /24 such as 203.0.113.0/24")
+    i.add_argument("--by", default="cli", help="Who is whitelisting (recorded)")
+    i.add_argument("--reason", default="manual", help="Why (recorded)")
+    _db_arg(i)
+
+
+class _CLIError(Exception):
+    pass
+
+
+def _run_admin(args) -> int:
+    import asyncio
+
+    try:
+        asyncio.run(_admin(args))
+    except (_CLIError, ValueError, LookupError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _storage_for(args):
+    import os
+
+    from guardpost.storage.sqlite import DEFAULT_LEGACY_TENANT, SQLiteStorage
+    from guardpost.tenancy.models import validate_tenant_id
+
+    db = args.db or os.environ.get("GUARDPOST_DB_PATH")
+    legacy = validate_tenant_id(os.environ.get("GUARDPOST_LEGACY_TENANT") or DEFAULT_LEGACY_TENANT)
+    return SQLiteStorage(db, legacy_tenant=legacy)
+
+
+async def _admin(args) -> None:
+    import json
+
+    from guardpost.storage.migrations import pending_sqlite_migrations, schema_version
+
+    storage = _storage_for(args)
+    try:
+        if args.command == "migrate":
+            with storage._lock:
+                conn = storage._get_conn()
+                pending = pending_sqlite_migrations(conn)
+                current = schema_version(conn)
+            if args.status:
+                print(f"{storage.db_path}: schema version {current}")
+                for m in pending:
+                    print(f"pending: {m.version:04d}_{m.name}")
+                return
+            applied = storage.migrate()
+            await storage.ensure_tenant(storage.legacy_tenant)
+            if applied:
+                print(f"{storage.db_path}: applied {', '.join(f'{v:04d}' for v in applied)}; "
+                      f"now at version {max(applied)}")
+            else:
+                print(f"{storage.db_path}: up to date (version {current})")
+            return
+
+        with storage._lock:
+            pending = pending_sqlite_migrations(storage._get_conn())
+        if pending:
+            raise _CLIError(f"{storage.db_path} needs migrating ({len(pending)} pending): run `guardpost migrate`")
+
+        if args.command == "tenant":
+            await _tenant(storage, args, json)
+        elif args.command == "key":
+            await _key(storage, args)
+        elif args.command == "ip":
+            await _ip(storage, args)
+    finally:
+        await storage.close()
+
+
+async def _tenant(storage, args, json) -> None:
+    from guardpost.tenancy.config import TenantConfig, apply_patch, parse_assignment
+    from guardpost.tenancy.models import Tenant, utcnow, validate_tenant_id
+
+    if args.action == "create":
+        config = json.loads(args.config) if args.config else {}
+        if args.region:
+            config["region"] = args.region
+        tenant = Tenant(id=validate_tenant_id(args.tenant_id), name=args.name or args.tenant_id,
+                        config=TenantConfig.model_validate(config))
+        await storage.create_tenant(tenant)
+        print(json.dumps(tenant.to_dict(), indent=2))
+        return
+    if args.action == "list":
+        tenants = await storage.list_tenants()
+        keys_by_tenant: dict[str, int] = {}
+        now = utcnow()
+        for k in await storage.list_api_keys():
+            if k.usable(now):
+                keys_by_tenant[k.tenant_id] = keys_by_tenant.get(k.tenant_id, 0) + 1
+        print(f"{'ID':<24} {'STATUS':<10} {'REGION':<8} {'KEYS':>4}  NAME")
+        for t in tenants:
+            print(f"{t.id:<24} {t.status:<10} {t.config.region or '-':<8} {keys_by_tenant.get(t.id, 0):>4}  {t.name}")
+        return
+
+    tenant = await storage.get_tenant(args.tenant_id)
+    if tenant is None:
+        raise LookupError(f"no such tenant: {args.tenant_id}")
+    if args.action == "show":
+        out = tenant.to_dict()
+        out["keys"] = [k.to_dict() for k in await storage.list_api_keys(tenant.id)]
+        print(json.dumps(out, indent=2))
+        return
+    if args.action == "config-set":
+        patches: list[dict] = []
+        if args.patch_json:
+            patch = json.loads(args.patch_json)
+            if not isinstance(patch, dict):
+                raise _CLIError("--json must be a JSON object")
+            patches.append(patch)
+        patches.extend(parse_assignment(a) for a in args.assignments)
+        if not patches and not args.replace:
+            raise _CLIError("nothing to set: pass key.path=value assignments or --json")
+        config = TenantConfig() if args.replace else tenant.config
+        for patch in patches:
+            config = apply_patch(config, patch)
+        tenant.config = config
+    elif args.action == "set-status":
+        tenant.status = args.status
+    tenant.updated_at = utcnow()
+    await storage.save_tenant(tenant)
+    print(json.dumps(tenant.to_dict(), indent=2))
+
+
+async def _key(storage, args) -> None:
+    from guardpost.tenancy import keys
+    from guardpost.tenancy.models import format_ts, utcnow
+
+    if args.action == "create":
+        expires = keys.parse_duration(args.expires) if args.expires else None
+        plaintext, record = await keys.create_key(storage, args.tenant, args.scopes, label=args.label,
+                                                  expires_in=expires)
+        # The key alone on stdout (KEY=$(guardpost key create ...)); details on stderr.
+        print(plaintext)
+        print(f"Created key {record.id} for tenant {record.tenant_id} (scopes: {','.join(sorted(record.scopes))}, "
+              f"expires: {format_ts(record.expires_at) or 'never'}). It is shown only this once.", file=sys.stderr)
+        return
+    if args.action == "list":
+        now = utcnow()
+        print(f"{'ID':<14} {'TENANT':<20} {'STATE':<8} {'SCOPES':<28} {'EXPIRES':<26} {'LAST USED':<26} LABEL")
+        for k in await storage.list_api_keys(args.tenant):
+            print(f"{k.id:<14} {k.tenant_id:<20} {k.state(now):<8} {','.join(sorted(k.scopes)):<28} "
+                  f"{format_ts(k.expires_at) or '-':<26} {format_ts(k.last_used_at) or '-':<26} {k.label or ''}")
+        return
+    if args.action == "revoke":
+        record = await keys.revoke_key(storage, args.key_id)
+        print(f"Revoked key {record.id} (tenant {record.tenant_id}) at {format_ts(record.revoked_at)}",
+              file=sys.stderr)
+        return
+    if args.action == "rotate":
+        plaintext, new, old = await keys.rotate_key(storage, args.key_id, grace=keys.parse_duration(args.grace))
+        print(plaintext)
+        print(f"Created key {new.id} for tenant {new.tenant_id}; old key {old.id} expires at "
+              f"{format_ts(old.expires_at)}. The new key is shown only this once.", file=sys.stderr)
+
+
+async def _ip(storage, args) -> None:
+    import ipaddress
+
+    from guardpost.ip.reputation import IPReputationEngine
+
+    if not args.is_global:
+        raise _CLIError("pass --global: IP reputation is shared by every tenant (per-tenant overrides come with v2)")
+    target = args.target.strip()
+    if "/" in target:
+        net = ipaddress.ip_network(target, strict=False)
+        if net.version != 4 or net.prefixlen != 24:
+            raise _CLIError("only single addresses and IPv4 /24 networks are tracked")
+        key = str(net)
+    else:
+        key = str(ipaddress.ip_address(target))
+    record = await IPReputationEngine(storage).whitelist_ip(key, args.by, args.reason)
+    print(f"Whitelisted {record.ip_address} for all tenants (by {record.whitelisted_by}: {record.whitelist_reason})")
 
 
 def _serve(args) -> None:

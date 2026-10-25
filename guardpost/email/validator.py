@@ -1466,6 +1466,7 @@ async def check_registration_suspicion(
     email: str,
     *,
     trusted_extra_domains: Iterable[str] = (),
+    flag_ua_domain: bool = False,
 ) -> tuple[bool, list[str]]:
     """Full registration suspicion check with all layers.
 
@@ -1476,6 +1477,12 @@ async def check_registration_suspicion(
     - Allow registration (no error shown to user)
     - Deny welcome bonus / referral credits
     - Flag user as suspicious internally
+
+    Args:
+        flag_ua_domain: the RU-region rule — soft-flag every ``*.ua`` address
+            as ``ua_domain``, trusted domains included (Factory v2's
+            checkRegistrationSuspicion, region "ru"). Off by default; a
+            tenant enables it through ``region_rules.ua_domain``.
 
     Returns:
         (is_suspicious, reasons)
@@ -1497,6 +1504,11 @@ async def check_registration_suspicion(
     role_reason = role_account_reason(email)
     if role_reason:
         reasons.append(role_reason)
+
+    # After is_suspicious_email(), so a trusted .ua domain (i.ua, meta.ua,
+    # yandex.ua...) is flagged too; same position as in Factory v2.
+    if flag_ua_domain and get_email_domain(email).endswith(".ua") and "ua_domain" not in reasons:
+        reasons.append("ua_domain")
 
     # Gmail-family only, so this has to run here rather than inside
     # is_suspicious_email(), which returns early for every trusted domain.

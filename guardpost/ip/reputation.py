@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NamedTuple
@@ -173,22 +174,35 @@ class IPReputationEngine:
         thresholds: _Thresholds,
     ) -> IPReputationRecord:
         """Increment one reputation record and re-evaluate it."""
-        record = await self.storage.get_ip_reputation(key)
 
-        if record is None:
-            record = IPReputationRecord(
-                ip_address=key,
-                first_registration_at=now,
-            )
+        def mutate(record: IPReputationRecord | None) -> IPReputationRecord:
+            if record is None:
+                record = IPReputationRecord(ip_address=key, first_registration_at=now)
+            record.total_registrations += 1
+            if is_suspicious:
+                record.suspicious_registrations += 1
+            record.last_registration_at = now
+            if not record.manually_whitelisted:
+                self._evaluate_status(record, now, thresholds)
+            return record
 
-        record.total_registrations += 1
-        if is_suspicious:
-            record.suspicious_registrations += 1
-        record.last_registration_at = now
+        return await self._update(key, mutate)
 
-        if not record.manually_whitelisted:
-            self._evaluate_status(record, now, thresholds)
+    async def _update(
+        self,
+        key: str,
+        mutate: Callable[[IPReputationRecord | None], IPReputationRecord],
+    ) -> IPReputationRecord:
+        """Read-modify-write one record, atomically when the backend can.
 
+        Backends with ``update_ip_reputation`` (SQLite, memory) run ``mutate``
+        inside their write lock, so concurrent registrations from one IP never
+        lose an increment. Others fall back to get-then-save, which can.
+        """
+        update = getattr(self.storage, "update_ip_reputation", None)
+        if update is not None:
+            return await update(key, mutate)
+        record = mutate(await self.storage.get_ip_reputation(key))
         await self.storage.save_ip_reputation(record)
         return record
 
@@ -228,21 +242,21 @@ class IPReputationEngine:
         return record.status, record.status_reason
 
     async def whitelist_ip(self, ip_address: str, whitelisted_by: str, reason: str) -> IPReputationRecord:
-        """Manually whitelist an IP (admin override)."""
+        """Manually whitelist an IP or a /24 CIDR (admin override, shared by all tenants)."""
         now = datetime.now(UTC)
-        record = await self.storage.get_ip_reputation(ip_address)
-        if record is None:
-            record = IPReputationRecord(ip_address=ip_address, first_registration_at=now)
 
-        record.manually_whitelisted = True
-        record.whitelisted_by = whitelisted_by
-        record.whitelist_reason = reason
-        record.status = "clean"
-        record.status_reason = None
-        record.status_changed_at = now
+        def mutate(record: IPReputationRecord | None) -> IPReputationRecord:
+            if record is None:
+                record = IPReputationRecord(ip_address=ip_address, first_registration_at=now)
+            record.manually_whitelisted = True
+            record.whitelisted_by = whitelisted_by
+            record.whitelist_reason = reason
+            record.status = "clean"
+            record.status_reason = None
+            record.status_changed_at = now
+            return record
 
-        await self.storage.save_ip_reputation(record)
-        return record
+        return await self._update(ip_address, mutate)
 
     # ------------------------------------------------------------------
     # Internal evaluation

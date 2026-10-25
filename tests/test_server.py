@@ -12,11 +12,13 @@ from guardpost.api.server import create_app
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):
     for var in ("GUARDPOST_API_KEY", "GUARDPOST_REDIS_URL", "GUARDPOST_RATE_LIMIT", "GUARDPOST_TRUSTED_PROXIES",
-                "GUARDPOST_ENABLE_METRICS", "GUARDPOST_METRICS_PORT", "GUARDPOST_TRUSTED_EXTRA_DOMAINS"):
+                "GUARDPOST_ENABLE_METRICS", "GUARDPOST_METRICS_PORT", "GUARDPOST_TRUSTED_EXTRA_DOMAINS",
+                "GUARDPOST_ALLOW_OPEN", "GUARDPOST_LEGACY_TENANT", "GUARDPOST_STORAGE", "GUARDPOST_MULTI_TENANT"):
         monkeypatch.delenv(var, raising=False)
     clients = []
 
     def _make(peer=("203.0.113.9", 50000), **kwargs):
+        kwargs.setdefault("allow_open", True)
         app = create_app(db_path=str(tmp_path / f"gp{len(clients)}.db"), **kwargs)
         client = TestClient(app, client=peer)
         client.__enter__()

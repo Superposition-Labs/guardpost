@@ -72,42 +72,25 @@ class TestSQLiteStorage:
         result = await storage.delete_banned_email("nope")
         assert result is False
 
-    async def test_registration_persistence(self, storage):
+    async def test_registrations_are_not_persisted_in_plaintext(self, storage):
+        import sqlite3
         import time
 
         from guardpost.fraud.patterns import Registration
 
         now = time.time()
-        reg1 = Registration(
-            email="a@b.com",
-            username="a",
-            domain="b.com",
-            ip_address="1.2.3.4",
-            timestamp=now,
-        )
-        reg2 = Registration(
-            email="c@d.com",
-            username="c",
-            domain="d.com",
-            ip_address="5.6.7.8",
-            timestamp=now + 1,
-        )
-        old = Registration(
-            email="old@old.com",
-            username="old",
-            domain="old.com",
-            timestamp=now - 7200,
-        )
-        await storage.save_registration(reg1)
-        await storage.save_registration(reg2)
-        await storage.save_registration(old)
+        await storage.save_registration(Registration(
+            email="someone@example.com", username="someone", domain="example.com",
+            ip_address="1.2.3.4", timestamp=now))
 
-        recent = await storage.get_recent_registrations(now - 8000)
-        assert len(recent) == 3
+        # 0.3: counted (timeline, stats) but the email is never written.
+        assert await storage.get_recent_registrations(now - 10) == []
+        timeline = await storage.get_registration_timeline(now - 10, 60)
+        assert sum(b["count"] for b in timeline) == 1
+        assert (await storage.get_stats())["total_registrations"] == 1
 
-        # Only recent
-        recent = await storage.get_recent_registrations(now - 1)
-        assert len(recent) == 2
-        assert recent[0].email == "a@b.com"
-        assert recent[1].email == "c@d.com"
-        assert recent[0].ip_address == "1.2.3.4"
+        raw = sqlite3.connect(str(storage.db_path))
+        tables = {r[0] for r in raw.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert "registrations" not in tables
+        dump = "\n".join(raw.iterdump())
+        assert "someone@example.com" not in dump and "1.2.3.4" not in dump

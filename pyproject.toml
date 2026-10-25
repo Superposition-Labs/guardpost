@@ -34,6 +34,8 @@ classifiers = [
 ]
 dependencies = [
     "dnspython>=2.6,<3.0",
+    # Tenant config validation (guardpost.tenancy.config).
+    "pydantic>=2.6,<3.0",
 ]
 
 [project.optional-dependencies]
