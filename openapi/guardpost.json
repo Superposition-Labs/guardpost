@@ -1,0 +1,4055 @@
+{
+  "components": {
+    "schemas": {
+      "AIBatchRequest": {
+        "properties": {
+          "emails": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Emails",
+            "type": "array"
+          }
+        },
+        "required": [
+          "emails"
+        ],
+        "title": "AIBatchRequest",
+        "type": "object"
+      },
+      "AIBatchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AIScoreResponse"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "AIBatchResponse",
+        "type": "object"
+      },
+      "AIScoreRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "AIScoreRequest",
+        "type": "object"
+      },
+      "AIScoreResponse": {
+        "properties": {
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "cached": {
+            "title": "Cached",
+            "type": "boolean"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "risk_score": {
+            "title": "Risk Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "email",
+          "risk_score",
+          "confidence",
+          "reasons",
+          "analysis",
+          "model",
+          "cached"
+        ],
+        "title": "AIScoreResponse",
+        "type": "object"
+      },
+      "AccountImport": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "banned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allow",
+                  "degrade",
+                  "block"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Device"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          },
+          "flagged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flagged At"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Name"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "reasons": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasons"
+          },
+          "referral_code_retracted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referral Code Retracted At"
+          }
+        },
+        "required": [
+          "account_id",
+          "created_at"
+        ],
+        "title": "AccountImport",
+        "type": "object"
+      },
+      "AccountRef": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The tenant's own opaque account id (no '@')",
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "AccountRef",
+        "type": "object"
+      },
+      "AccountResponse": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "banned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned At"
+          },
+          "check_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Check Id"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "flagged_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flagged At"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "referral_code_retracted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referral Code Retracted At"
+          },
+          "referred_accounts": {
+            "title": "Referred Accounts",
+            "type": "integer"
+          },
+          "referred_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferredByOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "returning_user": {
+            "title": "Returning User",
+            "type": "boolean"
+          },
+          "signals": {
+            "$ref": "#/components/schemas/AccountSignalsOut"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "created_at",
+          "source",
+          "method",
+          "decision",
+          "reasons",
+          "returning_user",
+          "check_id",
+          "signals",
+          "deleted_at",
+          "banned_at",
+          "paid_at",
+          "flagged_at",
+          "referral_code_retracted_at",
+          "referred_by",
+          "referred_accounts"
+        ],
+        "title": "AccountResponse",
+        "type": "object"
+      },
+      "AccountSignalsOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "boolean"
+          },
+          "global_ip": {
+            "title": "Global Ip",
+            "type": "boolean"
+          },
+          "ip": {
+            "title": "Ip",
+            "type": "boolean"
+          },
+          "name_key": {
+            "title": "Name Key",
+            "type": "boolean"
+          },
+          "purged_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purged At"
+          }
+        },
+        "required": [
+          "email",
+          "fingerprint",
+          "ip",
+          "global_ip",
+          "name_key",
+          "purged_at"
+        ],
+        "title": "AccountSignalsOut",
+        "type": "object"
+      },
+      "AccountsImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "description": "1 to 1000 rows",
+            "items": {
+              "$ref": "#/components/schemas/AccountImport"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "AccountsImportRequest",
+        "type": "object"
+      },
+      "BanImport": {
+        "additionalProperties": false,
+        "properties": {
+          "banned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned At"
+          },
+          "banned_by": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned By"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "BanImport",
+        "type": "object"
+      },
+      "BansImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "description": "1 to 1000 rows",
+            "items": {
+              "$ref": "#/components/schemas/BanImport"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "BansImportRequest",
+        "type": "object"
+      },
+      "CommitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "check_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Check Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check_id",
+          "account_id"
+        ],
+        "title": "CommitRequest",
+        "type": "object"
+      },
+      "Device": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_language": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Language"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256(User-Agent|Accept-Language), lowercase hex, instead of the headers",
+            "title": "Fingerprint"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          }
+        },
+        "title": "Device",
+        "type": "object"
+      },
+      "EmailValidateRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "EmailValidateRequest",
+        "type": "object"
+      },
+      "EmailValidateResponse": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "format_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Error"
+          },
+          "is_b2c": {
+            "title": "Is B2C",
+            "type": "boolean"
+          },
+          "is_disposable": {
+            "title": "Is Disposable",
+            "type": "boolean"
+          },
+          "is_role_account": {
+            "title": "Is Role Account",
+            "type": "boolean"
+          },
+          "is_suspicious": {
+            "title": "Is Suspicious",
+            "type": "boolean"
+          },
+          "is_valid": {
+            "title": "Is Valid",
+            "type": "boolean"
+          },
+          "normalized_email": {
+            "title": "Normalized Email",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "suggested_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Domain"
+          },
+          "typo_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typo Source"
+          }
+        },
+        "required": [
+          "email",
+          "normalized_email",
+          "is_valid",
+          "format_error",
+          "is_disposable",
+          "is_role_account",
+          "is_b2c",
+          "is_suspicious",
+          "reasons"
+        ],
+        "title": "EmailValidateResponse",
+        "type": "object"
+      },
+      "EventRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "permanent_email_ban": {
+            "default": false,
+            "description": "banned: also ban the address for this tenant",
+            "title": "Permanent Email Ban",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "type": {
+            "enum": [
+              "created",
+              "deleted",
+              "banned",
+              "unbanned",
+              "paid",
+              "flagged",
+              "unflagged",
+              "referral_code_retracted",
+              "referral_code_restored"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "EventRequest",
+        "type": "object"
+      },
+      "EventResponse": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "email_ban_created": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Ban Created"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "type",
+          "applied",
+          "duplicate",
+          "event_id"
+        ],
+        "title": "EventResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "IPCheckRequest": {
+        "properties": {
+          "ip_address": {
+            "maxLength": 45,
+            "title": "Ip Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip_address"
+        ],
+        "title": "IPCheckRequest",
+        "type": "object"
+      },
+      "IPCheckResponse": {
+        "properties": {
+          "ip_address": {
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip_address",
+          "status",
+          "reason"
+        ],
+        "title": "IPCheckResponse",
+        "type": "object"
+      },
+      "IPRecordRequest": {
+        "properties": {
+          "ip_address": {
+            "maxLength": 45,
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "is_suspicious": {
+            "default": false,
+            "title": "Is Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ip_address"
+        ],
+        "title": "IPRecordRequest",
+        "type": "object"
+      },
+      "IPReputationImport": {
+        "additionalProperties": false,
+        "properties": {
+          "first_registration_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Registration At"
+          },
+          "ip_address": {
+            "description": "An address, or an IPv4 /24 such as 203.0.113.0/24",
+            "maxLength": 64,
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "last_registration_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Registration At"
+          },
+          "manually_whitelisted": {
+            "default": false,
+            "title": "Manually Whitelisted",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "clean",
+            "enum": [
+              "clean",
+              "graylisted",
+              "blacklisted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "status_changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Changed At"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Reason"
+          },
+          "suspicious_registrations": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Suspicious Registrations",
+            "type": "integer"
+          },
+          "total_registrations": {
+            "minimum": 0.0,
+            "title": "Total Registrations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ip_address",
+          "total_registrations"
+        ],
+        "title": "IPReputationImport",
+        "type": "object"
+      },
+      "IPReputationImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "description": "1 to 1000 rows",
+            "items": {
+              "$ref": "#/components/schemas/IPReputationImport"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "IPReputationImportRequest",
+        "type": "object"
+      },
+      "ImportResponse": {
+        "properties": {
+          "inserted": {
+            "title": "Inserted",
+            "type": "integer"
+          },
+          "received": {
+            "title": "Received",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received",
+          "inserted",
+          "updated"
+        ],
+        "title": "ImportResponse",
+        "type": "object"
+      },
+      "LatencyOut": {
+        "properties": {
+          "p50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50"
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95"
+          },
+          "samples": {
+            "title": "Samples",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "samples",
+          "p50",
+          "p95"
+        ],
+        "title": "LatencyOut",
+        "type": "object"
+      },
+      "Name": {
+        "additionalProperties": false,
+        "properties": {
+          "display": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "first": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A precomputed name key instead",
+            "title": "Key"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last"
+          }
+        },
+        "title": "Name",
+        "type": "object"
+      },
+      "OverrideRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "allow: the address (or /24) is clean for this tenant; block: refused (IP_BLACKLISTED)",
+            "enum": [
+              "allow",
+              "block"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "OverrideRequest",
+        "type": "object"
+      },
+      "OverrideResponse": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allow",
+                  "block"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "kind": {
+            "enum": [
+              "ip",
+              "net24"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "kind"
+        ],
+        "title": "OverrideResponse",
+        "type": "object"
+      },
+      "PatternReportResponse": {
+        "properties": {
+          "clusters": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Clusters",
+            "type": "array"
+          },
+          "risk_level": {
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "suspicious_count": {
+            "title": "Suspicious Count",
+            "type": "integer"
+          },
+          "total_registrations": {
+            "title": "Total Registrations",
+            "type": "integer"
+          },
+          "velocity_per_minute": {
+            "title": "Velocity Per Minute",
+            "type": "number"
+          }
+        },
+        "required": [
+          "total_registrations",
+          "suspicious_count",
+          "risk_level",
+          "velocity_per_minute",
+          "clusters"
+        ],
+        "title": "PatternReportResponse",
+        "type": "object"
+      },
+      "ProxyCheckRequest": {
+        "properties": {
+          "ip_address": {
+            "maxLength": 45,
+            "title": "Ip Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ip_address"
+        ],
+        "title": "ProxyCheckRequest",
+        "type": "object"
+      },
+      "ProxyCheckResponse": {
+        "properties": {
+          "ip_address": {
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "ip_type": {
+            "title": "Ip Type",
+            "type": "string"
+          },
+          "is_datacenter": {
+            "default": false,
+            "title": "Is Datacenter",
+            "type": "boolean"
+          },
+          "is_proxy": {
+            "default": false,
+            "title": "Is Proxy",
+            "type": "boolean"
+          },
+          "is_tor": {
+            "default": false,
+            "title": "Is Tor",
+            "type": "boolean"
+          },
+          "is_vpn": {
+            "default": false,
+            "title": "Is Vpn",
+            "type": "boolean"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ip_address",
+          "ip_type",
+          "reasons"
+        ],
+        "title": "ProxyCheckResponse",
+        "type": "object"
+      },
+      "ReasonOut": {
+        "properties": {
+          "code": {
+            "description": "Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1",
+            "title": "Code",
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque facts: the tenant's own account ids, counts",
+            "title": "Evidence"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "hard",
+              "soft",
+              "weak"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "kind",
+          "tier"
+        ],
+        "title": "ReasonOut",
+        "type": "object"
+      },
+      "ReferralImport": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "referred_account_id": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Referred Account Id",
+            "type": "string"
+          },
+          "referrer_account_id": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Referrer Account Id",
+            "type": "string"
+          },
+          "suspicious": {
+            "default": false,
+            "title": "Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "referred_account_id",
+          "referrer_account_id",
+          "created_at"
+        ],
+        "title": "ReferralImport",
+        "type": "object"
+      },
+      "ReferralIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "referrer_account_id": {
+            "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+            "title": "Referrer Account Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referrer_account_id"
+        ],
+        "title": "ReferralIn",
+        "type": "object"
+      },
+      "ReferralOut": {
+        "properties": {
+          "attribute": {
+            "description": "Record the referral (false: no attribution at all)",
+            "title": "Attribute",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "suspicious": {
+            "description": "Attribute it, but flagged: the referee gets no referral bonus",
+            "title": "Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attribute",
+          "suspicious"
+        ],
+        "title": "ReferralOut",
+        "type": "object"
+      },
+      "ReferralStatsOut": {
+        "properties": {
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "suspicious"
+        ],
+        "title": "ReferralStatsOut",
+        "type": "object"
+      },
+      "ReferralsImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "description": "1 to 1000 rows",
+            "items": {
+              "$ref": "#/components/schemas/ReferralImport"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "title": "ReferralsImportRequest",
+        "type": "object"
+      },
+      "ReferredByOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "referrer_account_id": {
+            "title": "Referrer Account Id",
+            "type": "string"
+          },
+          "suspicious": {
+            "title": "Suspicious",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "referrer_account_id",
+          "created_at",
+          "suspicious",
+          "reason"
+        ],
+        "title": "ReferredByOut",
+        "type": "object"
+      },
+      "SMTPVerifyRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "SMTPVerifyRequest",
+        "type": "object"
+      },
+      "SMTPVerifyResponse": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_catch_all": {
+            "default": false,
+            "title": "Is Catch All",
+            "type": "boolean"
+          },
+          "mx_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mx Host"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "smtp_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Code"
+          },
+          "smtp_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Message"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "status",
+          "reasons"
+        ],
+        "title": "SMTPVerifyResponse",
+        "type": "object"
+      },
+      "SignalsOut": {
+        "properties": {
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "boolean"
+          },
+          "global_ip": {
+            "title": "Global Ip",
+            "type": "boolean"
+          },
+          "ip_override": {
+            "anyOf": [
+              {
+                "enum": [
+                  "allow",
+                  "block"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Override"
+          },
+          "ip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Reason"
+          },
+          "ip_status": {
+            "title": "Ip Status",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "name_key": {
+            "title": "Name Key",
+            "type": "boolean"
+          },
+          "returning_user": {
+            "title": "Returning User",
+            "type": "boolean"
+          },
+          "subnet_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subnet Reason"
+          },
+          "subnet_status": {
+            "title": "Subnet Status",
+            "type": "string"
+          },
+          "typo_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typo Source"
+          }
+        },
+        "required": [
+          "method",
+          "returning_user",
+          "ip_status",
+          "ip_reason",
+          "subnet_status",
+          "subnet_reason",
+          "ip_override",
+          "global_ip",
+          "fingerprint",
+          "name_key",
+          "typo_source"
+        ],
+        "title": "SignalsOut",
+        "type": "object"
+      },
+      "Signup": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "default": "email",
+            "description": "email: the format, typo and MX gates run; oauth: they are skipped",
+            "enum": [
+              "email",
+              "oauth"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "oauth_provider": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "pattern": "^[a-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oauth Provider"
+          },
+          "returning_user": {
+            "default": false,
+            "description": "The address belonged to a deleted account. No welcome credits or referral; OAuth also skips the device and same-person rules",
+            "title": "Returning User",
+            "type": "boolean"
+          }
+        },
+        "title": "Signup",
+        "type": "object"
+      },
+      "TimelineBucket": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "t": {
+            "title": "T",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t",
+          "count"
+        ],
+        "title": "TimelineBucket",
+        "type": "object"
+      },
+      "TimelineResponse": {
+        "properties": {
+          "bucket_seconds": {
+            "title": "Bucket Seconds",
+            "type": "integer"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineBucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "buckets",
+          "bucket_seconds"
+        ],
+        "title": "TimelineResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "guardpost__api__v1__BanRequest": {
+        "properties": {
+          "banned_by": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned By"
+          },
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "BanRequest",
+        "type": "object"
+      },
+      "guardpost__api__v1__BanResponse": {
+        "properties": {
+          "banned": {
+            "title": "Banned",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "normalized_email_hash": {
+            "title": "Normalized Email Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "normalized_email_hash",
+          "banned"
+        ],
+        "title": "BanResponse",
+        "type": "object"
+      },
+      "guardpost__api__v1__CheckRequest": {
+        "properties": {
+          "ai_score": {
+            "default": false,
+            "description": "Run AI email scoring (requires OpenRouter key)",
+            "title": "Ai Score",
+            "type": "boolean"
+          },
+          "check_proxy": {
+            "default": false,
+            "description": "Check if IP is VPN/proxy/datacenter",
+            "title": "Check Proxy",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Email address to check",
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "enrich": {
+            "default": false,
+            "description": "Run enrichment lookups (Gravatar, HIBP)",
+            "title": "Enrich",
+            "type": "boolean"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "maxLength": 45,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IP address of the registrant",
+            "title": "Ip Address"
+          },
+          "record_ip": {
+            "default": true,
+            "description": "Whether to record this as a registration for IP tracking",
+            "title": "Record Ip",
+            "type": "boolean"
+          },
+          "smtp_verify": {
+            "default": false,
+            "description": "Run SMTP verification (requires port 25)",
+            "title": "Smtp Verify",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "CheckRequest",
+        "type": "object"
+      },
+      "guardpost__api__v1__CheckResponse": {
+        "properties": {
+          "ai_analysis": {
+            "default": "",
+            "title": "Ai Analysis",
+            "type": "string"
+          },
+          "ai_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Confidence"
+          },
+          "ai_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Ai Reasons",
+            "type": "array"
+          },
+          "ai_risk_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Risk Score"
+          },
+          "breach_count": {
+            "default": 0,
+            "title": "Breach Count",
+            "type": "integer"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "gravatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gravatar Url"
+          },
+          "hard_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Hard Reasons",
+            "type": "array"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "ip_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Provider"
+          },
+          "ip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Reason"
+          },
+          "ip_status": {
+            "title": "Ip Status",
+            "type": "string"
+          },
+          "ip_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Type"
+          },
+          "is_b2c": {
+            "default": false,
+            "title": "Is B2C",
+            "type": "boolean"
+          },
+          "is_banned": {
+            "title": "Is Banned",
+            "type": "boolean"
+          },
+          "is_datacenter": {
+            "default": false,
+            "title": "Is Datacenter",
+            "type": "boolean"
+          },
+          "is_proxy": {
+            "default": false,
+            "title": "Is Proxy",
+            "type": "boolean"
+          },
+          "is_suspicious": {
+            "title": "Is Suspicious",
+            "type": "boolean"
+          },
+          "is_tor": {
+            "default": false,
+            "title": "Is Tor",
+            "type": "boolean"
+          },
+          "is_vpn": {
+            "default": false,
+            "title": "Is Vpn",
+            "type": "boolean"
+          },
+          "normalized_email": {
+            "title": "Normalized Email",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "risk_score": {
+            "title": "Risk Score",
+            "type": "integer"
+          },
+          "smtp_catch_all": {
+            "default": false,
+            "title": "Smtp Catch All",
+            "type": "boolean"
+          },
+          "smtp_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Smtp Status"
+          },
+          "soft_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Soft Reasons",
+            "type": "array"
+          },
+          "subnet_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subnet Reason"
+          },
+          "subnet_status": {
+            "default": "clean",
+            "title": "Subnet Status",
+            "type": "string"
+          },
+          "suggested_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Domain"
+          },
+          "typo_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typo Source"
+          },
+          "weak_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Weak Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "email",
+          "ip_address",
+          "is_suspicious",
+          "risk_score",
+          "reasons",
+          "ip_status",
+          "ip_reason",
+          "is_banned",
+          "normalized_email"
+        ],
+        "title": "CheckResponse",
+        "type": "object"
+      },
+      "guardpost__api__v1__StatsResponse": {
+        "properties": {
+          "blacklisted_ips": {
+            "title": "Blacklisted Ips",
+            "type": "integer"
+          },
+          "graylisted_ips": {
+            "title": "Graylisted Ips",
+            "type": "integer"
+          },
+          "total_banned_emails": {
+            "title": "Total Banned Emails",
+            "type": "integer"
+          },
+          "total_ips": {
+            "title": "Total Ips",
+            "type": "integer"
+          },
+          "total_registrations": {
+            "title": "Total Registrations",
+            "type": "integer"
+          },
+          "total_suspicious_registrations": {
+            "title": "Total Suspicious Registrations",
+            "type": "integer"
+          },
+          "whitelisted_ips": {
+            "title": "Whitelisted Ips",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_ips",
+          "graylisted_ips",
+          "blacklisted_ips",
+          "whitelisted_ips",
+          "total_banned_emails",
+          "total_registrations",
+          "total_suspicious_registrations"
+        ],
+        "title": "StatsResponse",
+        "type": "object"
+      },
+      "guardpost__api__v1__UnbanRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "UnbanRequest",
+        "type": "object"
+      },
+      "guardpost__api__v2__BanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "banned_by": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Banned By"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "BanRequest",
+        "type": "object"
+      },
+      "guardpost__api__v2__BanResponse": {
+        "properties": {
+          "banned": {
+            "title": "Banned",
+            "type": "boolean"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed"
+          }
+        },
+        "required": [
+          "banned"
+        ],
+        "title": "BanResponse",
+        "type": "object"
+      },
+      "guardpost__api__v2__CheckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Device"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Or the Idempotency-Key header",
+            "title": "Idempotency Key"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "mode": {
+            "default": "evaluate",
+            "description": "evaluate: read-only, keeps a pending check for 1 hour (commit it with POST /api/v2/accounts); commit: evaluate and record the account in one call",
+            "enum": [
+              "evaluate",
+              "commit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Name"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the signup happened (default: now). More than 15 minutes in the past needs the backfill scope",
+            "title": "Occurred At"
+          },
+          "referral": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferralIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "region": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z]{2,16}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Region rules when the tenant config sets none (ru: ua_domain)",
+            "title": "Region"
+          },
+          "signup": {
+            "$ref": "#/components/schemas/Signup"
+          }
+        },
+        "title": "CheckRequest",
+        "type": "object"
+      },
+      "guardpost__api__v2__CheckResponse": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "actions": {
+            "items": {
+              "enum": [
+                "no_welcome_credits",
+                "no_referral_attribution",
+                "no_referral_payouts",
+                "retract_referral_code"
+              ],
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "block_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On block, the Factory v2 refusal it reproduces: EMAIL_INVALID_FORMAT, EMAIL_TYPO_SUSPECTED, EMAIL_DOMAIN_UNDELIVERABLE, EMAIL_BANNED, EMAIL_ALIAS_EXISTS, IP_BLACKLISTED, POLICY_BLOCK",
+            "title": "Block Code"
+          },
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "committed": {
+            "title": "Committed",
+            "type": "boolean"
+          },
+          "decision": {
+            "enum": [
+              "allow",
+              "degrade",
+              "block"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "hard_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Hard Reasons",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "evaluate",
+              "commit"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "occurred_at": {
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonOut"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "referral": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferralOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "risk_score": {
+            "title": "Risk Score",
+            "type": "integer"
+          },
+          "ruleset": {
+            "title": "Ruleset",
+            "type": "string"
+          },
+          "signals": {
+            "$ref": "#/components/schemas/SignalsOut"
+          },
+          "soft_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Soft Reasons",
+            "type": "array"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EMAIL_TYPO_SUSPECTED: the domain the user probably meant",
+            "title": "Suggestion"
+          },
+          "weak_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weak Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "check_id",
+          "decision",
+          "block_code",
+          "risk_score",
+          "reasons",
+          "hard_reasons",
+          "soft_reasons",
+          "weak_reasons",
+          "actions",
+          "referral",
+          "suggestion",
+          "signals",
+          "mode",
+          "committed",
+          "account_id",
+          "occurred_at",
+          "ruleset",
+          "engine_version"
+        ],
+        "title": "CheckResponse",
+        "type": "object"
+      },
+      "guardpost__api__v2__StatsResponse": {
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "bans": {
+            "title": "Bans",
+            "type": "integer"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "decisions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Decisions",
+            "type": "object"
+          },
+          "degraded": {
+            "title": "Degraded",
+            "type": "integer"
+          },
+          "degraded_then_paid": {
+            "title": "Degraded Then Paid",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "$ref": "#/components/schemas/LatencyOut",
+            "description": "Check latency over the last 24 hours (checks retention)"
+          },
+          "pending_checks": {
+            "title": "Pending Checks",
+            "type": "integer"
+          },
+          "reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Reason kind -> committed accounts carrying it",
+            "title": "Reasons",
+            "type": "object"
+          },
+          "referrals": {
+            "$ref": "#/components/schemas/ReferralStatsOut"
+          },
+          "ruleset": {
+            "title": "Ruleset",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "days",
+          "ruleset",
+          "accounts",
+          "decisions",
+          "reasons",
+          "degraded",
+          "degraded_then_paid",
+          "referrals",
+          "bans",
+          "pending_checks",
+          "latency_ms"
+        ],
+        "title": "StatsResponse",
+        "type": "object"
+      },
+      "guardpost__api__v2__UnbanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sha256 hex of the alias-normalized address (Factory v2 normalized_email_hash)",
+            "title": "Email Sha256"
+          }
+        },
+        "title": "UnbanRequest",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Self-hosted registration abuse detection API",
+    "title": "Guardpost",
+    "version": "2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/ai/score": {
+      "post": {
+        "description": "AI-powered email risk scoring (hosted feature).",
+        "operationId": "ai_score_email_api_v1_ai_score_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIScoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIScoreResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ai Score Email"
+      }
+    },
+    "/api/v1/ai/score/batch": {
+      "post": {
+        "description": "Batch AI email scoring (hosted feature).",
+        "operationId": "ai_score_batch_api_v1_ai_score_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ai Score Batch"
+      }
+    },
+    "/api/v1/check": {
+      "post": {
+        "description": "Full registration suspicion check (email + IP + optional SMTP/proxy).",
+        "operationId": "check_registration_api_v1_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v1__CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v1__CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Registration"
+      }
+    },
+    "/api/v1/email/ban": {
+      "delete": {
+        "description": "Remove email from ban list.",
+        "operationId": "unban_email_api_v1_email_ban_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v1__UnbanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v1__BanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unban Email"
+      },
+      "post": {
+        "description": "Add email to permanent ban list.",
+        "operationId": "ban_email_api_v1_email_ban_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v1__BanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v1__BanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ban Email"
+      }
+    },
+    "/api/v1/email/smtp": {
+      "post": {
+        "description": "SMTP mailbox verification (requires port 25 access).",
+        "operationId": "smtp_verify_api_v1_email_smtp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPVerifyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Smtp Verify"
+      }
+    },
+    "/api/v1/email/validate": {
+      "post": {
+        "description": "Email-only validation (no IP, no storage).",
+        "operationId": "validate_email_api_v1_email_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailValidateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Email"
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/v1/ip/check": {
+      "post": {
+        "description": "Check IP reputation.",
+        "operationId": "check_ip_api_v1_ip_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IPCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IPCheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Ip"
+      }
+    },
+    "/api/v1/ip/proxy": {
+      "post": {
+        "description": "Check if an IP is a VPN, proxy, datacenter, or Tor exit node.",
+        "operationId": "check_proxy_api_v1_ip_proxy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProxyCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyCheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Proxy"
+      }
+    },
+    "/api/v1/ip/record": {
+      "post": {
+        "description": "Record a registration from an IP.",
+        "operationId": "record_ip_api_v1_ip_record_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IPRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IPCheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Ip"
+      }
+    },
+    "/api/v1/patterns/report": {
+      "get": {
+        "description": "Get registration pattern analysis report.",
+        "operationId": "pattern_report_api_v1_patterns_report_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatternReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Pattern Report"
+      }
+    },
+    "/api/v1/stats": {
+      "get": {
+        "description": "Aggregate statistics: IP counts, ban counts, registration totals.",
+        "operationId": "stats_api_v1_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v1__StatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Stats"
+      }
+    },
+    "/api/v1/stats/timeline": {
+      "get": {
+        "description": "Registration activity over time, grouped into buckets.",
+        "operationId": "stats_timeline_api_v1_stats_timeline_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Hours",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket_minutes",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "title": "Bucket Minutes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stats Timeline"
+      }
+    },
+    "/api/v2/accounts": {
+      "post": {
+        "description": "Idempotent: committing the same check for the same account again returns the same result.",
+        "operationId": "commit_account_api_v2_accounts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v2__CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Commit an evaluated check as an account",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/accounts/{account_id}": {
+      "get": {
+        "operationId": "get_account_api_v2_accounts__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "One account's ledger state",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/accounts/{account_id}/events": {
+      "post": {
+        "description": "deleted nulls the email key (signals stay until retention); banned with\npermanent_email_ban also bans the address; unbanned keeps an email ban.",
+        "operationId": "account_event_api_v2_accounts__account_id__events_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Record a lifecycle event",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/admin/ip-reputation/import": {
+      "post": {
+        "description": "Shared by every tenant. Merge: higher counters win, the earliest first\nand latest last registration win, the worse status wins, a whitelist stays.",
+        "operationId": "import_ip_reputation_api_v2_admin_ip_reputation_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IPReputationImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Merge rows into the shared IP reputation table",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/bans": {
+      "delete": {
+        "operationId": "delete_ban_api_v2_bans_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v2__UnbanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v2__BanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Lift a ban",
+        "tags": [
+          "v2"
+        ]
+      },
+      "put": {
+        "operationId": "put_ban_api_v2_bans_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v2__BanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v2__BanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Ban an address for this tenant",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/check": {
+      "post": {
+        "description": "The server-side signup rules, in Factory v2's order.\n\nReplaying an idempotency key with the same request returns the identical\nresult (for 24 hours); with a different request it is a 422.",
+        "operationId": "check_api_v2_check_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/guardpost__api__v2__CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v2__CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Evaluate (and optionally commit) a signup",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/import/accounts": {
+      "post": {
+        "operationId": "import_accounts_api_v2_import_accounts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountsImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Backfill accounts (upsert)",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/import/bans": {
+      "post": {
+        "operationId": "import_bans_api_v2_import_bans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BansImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Backfill bans (upsert)",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/import/referrals": {
+      "post": {
+        "operationId": "import_referrals_api_v2_import_referrals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralsImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Backfill referrals (upsert)",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/ip-overrides/{target}": {
+      "delete": {
+        "operationId": "delete_override_api_v2_ip_overrides__target__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Remove an IP override",
+        "tags": [
+          "v2"
+        ]
+      },
+      "put": {
+        "description": "``target`` is an address or an IPv4 /24 (``203.0.113.0/24``). The\noverride is stored keyed (HMAC), so it is matched, never listed.",
+        "operationId": "put_override_api_v2_ip_overrides__target__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "title": "Target",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "Set a per-tenant IP override",
+        "tags": [
+          "v2"
+        ]
+      }
+    },
+    "/api/v2/stats": {
+      "get": {
+        "operationId": "stats_api_v2_stats_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 400,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/guardpost__api__v2__StatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Invalid or missing API key"
+          },
+          "403": {
+            "description": "The key lacks the scope, or the tenant is suspended"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "No GUARDPOST_SECRET (or no SQLite storage): the v2 ledger is disabled"
+          }
+        },
+        "summary": "This tenant's v2 numbers",
+        "tags": [
+          "v2"
+        ]
+      }
+    }
+  }
+}

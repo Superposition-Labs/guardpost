@@ -16,9 +16,11 @@ import logging
 import os
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
+from typing import Protocol, runtime_checkable
 
 import dns.resolver
 
@@ -1242,11 +1244,116 @@ def _resolve_dns(domain: str, rdtype: str, lifetime: float = 3.0):
     return dns.resolver.resolve(domain, rdtype, lifetime=lifetime)
 
 
-async def _resolve_mx_host(domain: str) -> str | None:
-    """Resolve the primary MX host for a domain (cached).
+# ---------------------------------------------------------------------------
+# Injectable DNS (Factory v2's src/lib/dns.ts DnsResolver)
+# ---------------------------------------------------------------------------
+# Every lookup function below takes ``resolver=``. None (the default) keeps the
+# built-in dnspython path with its process-wide caches. A DnsResolver replaces
+# it, uncached: the v2 check API, tests and the parity vectors use one so that
+# no lookup touches the network and every answer is deterministic.
 
-    Returns the MX hostname, None if no records, or _DNS_ERROR on transient failure.
+DNS_RECORDS = "records"  # the name answered
+DNS_NONE = "none"  # definitive: NXDOMAIN / no answer for this type
+DNS_ERROR = "error"  # transient (timeout, SERVFAIL): callers give the benefit of the doubt
+
+
+@dataclass(frozen=True)
+class DnsAnswer:
+    kind: str
+    # MX: (priority, exchange) pairs; A: addresses.
+    records: tuple = ()
+
+
+@runtime_checkable
+class DnsResolver(Protocol):
+    async def mx(self, domain: str) -> DnsAnswer: ...
+
+    async def a(self, host: str) -> DnsAnswer: ...
+
+
+class SystemDnsResolver:
+    """dnspython with a 3 s lifetime, answers classified like v2's systemDnsResolver."""
+
+    def __init__(self, lifetime: float = 3.0) -> None:
+        self.lifetime = lifetime
+
+    async def _query(self, name: str, rdtype: str) -> DnsAnswer:
+        try:
+            answers = await asyncio.to_thread(_resolve_dns, name, rdtype, self.lifetime)
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            return DnsAnswer(DNS_NONE)
+        except Exception:
+            return DnsAnswer(DNS_ERROR)
+        if rdtype == "MX":
+            records = tuple((r.preference, str(r.exchange)) for r in answers)
+        else:
+            records = tuple(str(r) for r in answers)
+        return DnsAnswer(DNS_RECORDS, records) if records else DnsAnswer(DNS_NONE)
+
+    async def mx(self, domain: str) -> DnsAnswer:
+        return await self._query(domain, "MX")
+
+    async def a(self, host: str) -> DnsAnswer:
+        return await self._query(host, "A")
+
+
+class StubDnsResolver:
+    """Table-driven resolver (v2 stubDnsResolver): unknown names are a definitive "none".
+
+    ``mx`` maps a domain to its exchanges (priority = position x 10) or "error";
+    ``a`` maps a host to its addresses or "error".
     """
+
+    def __init__(self, mx: Mapping[str, object] | None = None, a: Mapping[str, object] | None = None) -> None:
+        self._mx = dict(mx or {})
+        self._a = dict(a or {})
+
+    @staticmethod
+    def _pick(value) -> DnsAnswer:
+        if value == DNS_ERROR:
+            return DnsAnswer(DNS_ERROR)
+        if value:
+            return DnsAnswer(DNS_RECORDS, tuple(value))
+        return DnsAnswer(DNS_NONE)
+
+    async def mx(self, domain: str) -> DnsAnswer:
+        value = self._mx.get(domain)
+        if isinstance(value, list | tuple):
+            value = [(i * 10, exchange) for i, exchange in enumerate(value)]
+        return self._pick(value)
+
+    async def a(self, host: str) -> DnsAnswer:
+        return self._pick(self._a.get(host))
+
+
+async def _a_lookup(host: str, resolver: DnsResolver | None) -> str:
+    """DNS_RECORDS, DNS_NONE or DNS_ERROR for an A lookup."""
+    if resolver is not None:
+        return (await resolver.a(host)).kind
+    try:
+        answers = await asyncio.to_thread(_resolve_dns, host, "A")
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        return DNS_NONE
+    except Exception:
+        return DNS_ERROR
+    return DNS_RECORDS if answers else DNS_NONE
+
+
+async def _resolve_mx_host(domain: str, resolver: DnsResolver | None = None) -> str | None:
+    """Resolve the primary MX host for a domain (cached; uncached with a resolver).
+
+    Returns the MX hostname, None if no records, or _DNS_ERROR on transient
+    failure. A null MX (".") comes back as "".
+    """
+    if resolver is not None:
+        answer = await resolver.mx(domain)
+        if answer.kind == DNS_ERROR:
+            return _DNS_ERROR
+        if answer.kind != DNS_RECORDS or not answer.records:
+            return None
+        _, exchange = min(answer.records, key=lambda r: r[0])
+        return str(exchange).rstrip(".").lower()
+
     if domain in _mx_host_cache:
         return _mx_host_cache[domain]
 
@@ -1271,16 +1378,17 @@ async def _resolve_mx_host(domain: str) -> str | None:
     return mx_host
 
 
-async def check_domain_has_mx(domain: str) -> bool:
-    """Check if a domain has valid MX records (cached)."""
-    if domain in _mx_cache:
+async def check_domain_has_mx(domain: str, *, resolver: DnsResolver | None = None) -> bool:
+    """Check if a domain has valid MX records (cached; uncached with a resolver)."""
+    if resolver is None and domain in _mx_cache:
         return _mx_cache[domain]
 
     if domain in TRUSTED_EMAIL_DOMAINS:
-        _mx_cache[domain] = True
+        if resolver is None:
+            _mx_cache[domain] = True
         return True
 
-    result = await _resolve_mx_host(domain)
+    result = await _resolve_mx_host(domain, resolver)
     if result is None:
         has_mx = False
     elif result == _DNS_ERROR:
@@ -1291,7 +1399,7 @@ async def check_domain_has_mx(domain: str) -> bool:
         # bool(answers) test would call such a domain deliverable.
         has_mx = result not in _NULL_MX_HOSTS
 
-    if len(_mx_cache) < _MX_CACHE_MAX_SIZE:
+    if resolver is None and len(_mx_cache) < _MX_CACHE_MAX_SIZE:
         _mx_cache[domain] = has_mx
 
     if not has_mx:
@@ -1300,14 +1408,14 @@ async def check_domain_has_mx(domain: str) -> bool:
     return has_mx
 
 
-async def check_domain_has_null_mx(domain: str) -> bool:
+async def check_domain_has_null_mx(domain: str, *, resolver: DnsResolver | None = None) -> bool:
     """Check whether a domain publishes an RFC 7505 null MX.
 
     Distinct from "no MX at all": the operator has explicitly declared the
     domain unable to receive mail. Shares _resolve_mx_host()'s cache, so this
     costs no extra DNS query.
     """
-    result = await _resolve_mx_host(domain)
+    result = await _resolve_mx_host(domain, resolver)
     if result is None or result == _DNS_ERROR:
         return False
     if result in _NULL_MX_HOSTS:
@@ -1316,7 +1424,7 @@ async def check_domain_has_null_mx(domain: str) -> bool:
     return False
 
 
-async def check_mx_points_to_disposable(domain: str) -> bool:
+async def check_mx_points_to_disposable(domain: str, *, resolver: DnsResolver | None = None) -> bool:
     """Check if a domain's MX points to known disposable mail infrastructure.
 
     Catches fresh throwaway domains that share backend MX hosts
@@ -1325,7 +1433,7 @@ async def check_mx_points_to_disposable(domain: str) -> bool:
     if domain in TRUSTED_EMAIL_DOMAINS:
         return False
 
-    mx_host = await _resolve_mx_host(domain)
+    mx_host = await _resolve_mx_host(domain, resolver)
     if not mx_host or mx_host == _DNS_ERROR:
         return False
 
@@ -1342,45 +1450,26 @@ async def check_mx_points_to_disposable(domain: str) -> bool:
                 "Domain %s MX subdomain of disposable infra: %s → %s", domain, mx_host, known_host)
             return True
 
-    # Self-referencing MX heuristic
+    # Self-referencing MX heuristic: the MX host does not resolve, or the
+    # domain has no website. A transient DNS error proves nothing either way.
     if mx_host in (f"mail.{domain}", f"c.{domain}", f"mx.{domain}"):
-        try:
-            a_records = await asyncio.to_thread(_resolve_dns, mx_host, "A")
-            if not a_records:
-                logger.warning(
-                    "Domain %s has self-referencing MX %s with no A record", domain, mx_host)
-                return True
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        if await _a_lookup(mx_host, resolver) == DNS_NONE:
             logger.warning(
                 "Domain %s has self-referencing MX %s that doesn't resolve", domain, mx_host)
             return True
-        except Exception:
-            logger.debug("DNS error checking A record for %s", mx_host)
-
-        # Self-hosted MX but no website — strong throwaway signal
-        try:
-            await asyncio.to_thread(_resolve_dns, domain, "A")
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        if await _a_lookup(domain, resolver) == DNS_NONE:
             logger.warning(
                 "Domain %s has self-referencing MX %s but no website", domain, mx_host)
             return True
-        except Exception:
-            pass
 
     # Cloudflare Email Routing abuse: route[1-3].mx.cloudflare.net is a free
     # service legitimate businesses use — BUT legitimate users always have a website
     # (A record). Pure email-only domains with CF routing and no A record are a
     # strong throwaway signal (greance.us, demdon.online, mooncapt.shop pattern).
-    if mx_host.endswith(".mx.cloudflare.net"):
-        try:
-            await asyncio.to_thread(_resolve_dns, domain, "A")
-            # Has A record → could be a real site with Cloudflare email routing, allow
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-            logger.warning(
-                "Domain %s uses Cloudflare Email Routing but has no website (no A record)", domain)
-            return True
-        except Exception:
-            pass  # Transient DNS error — give benefit of the doubt
+    if mx_host.endswith(".mx.cloudflare.net") and await _a_lookup(domain, resolver) == DNS_NONE:
+        logger.warning(
+            "Domain %s uses Cloudflare Email Routing but has no website (no A record)", domain)
+        return True
 
     return False
 
@@ -1389,6 +1478,8 @@ async def is_suspicious_email(
     email: str,
     *,
     trusted_extra_domains: Iterable[str] = (),
+    resolver: DnsResolver | None = None,
+    include_typo: bool = True,
 ) -> tuple[bool, list[str]]:
     """Multi-layer email suspicion check.
 
@@ -1402,6 +1493,10 @@ async def is_suspicious_email(
     Args:
         trusted_extra_domains: deployment-specific domains treated exactly like
             TRUSTED_EMAIL_DOMAINS (see TRUSTED_EXTRA_DOMAINS_ENV).
+        resolver: the DNS to ask (None: the cached dnspython default).
+        include_typo: emit ``typo_domain``. The v2 check runs typos as a gate
+            of their own (Factory v2's EMAIL_TYPO_SUSPECTED) and turns this
+            off, so a typo never suppresses the MX layers there.
 
     Returns:
         (is_suspicious, reasons)
@@ -1423,7 +1518,7 @@ async def is_suspicious_email(
 
         # Lookalikes have live catch-all MX as often as not, so the DNS layers
         # below cannot be relied on to catch them.
-        if is_typo_domain(email):
+        if include_typo and is_typo_domain(email):
             reasons.append("typo_domain")
 
         if has_gibberish_domain(email):
@@ -1452,11 +1547,11 @@ async def is_suspicious_email(
         # on `reasons` instead would let a weak signal such as gibberish_domain
         # silently suppress the MX checks that do the real work.
         if not has_suspicious_reason(reasons):
-            if await check_domain_has_null_mx(domain):
+            if await check_domain_has_null_mx(domain, resolver=resolver):
                 reasons.append("null_mx")
-            elif not await check_domain_has_mx(domain):
+            elif not await check_domain_has_mx(domain, resolver=resolver):
                 reasons.append("no_mx_records")
-            elif await check_mx_points_to_disposable(domain):
+            elif await check_mx_points_to_disposable(domain, resolver=resolver):
                 reasons.append("disposable_mx_infrastructure")
 
     return has_suspicious_reason(reasons), reasons
@@ -1467,6 +1562,8 @@ async def check_registration_suspicion(
     *,
     trusted_extra_domains: Iterable[str] = (),
     flag_ua_domain: bool = False,
+    resolver: DnsResolver | None = None,
+    include_typo: bool = True,
 ) -> tuple[bool, list[str]]:
     """Full registration suspicion check with all layers.
 
@@ -1492,7 +1589,7 @@ async def check_registration_suspicion(
 
     # Core suspicion checks (disposable, heuristic, DNS)
     is_suspicious, reasons = await is_suspicious_email(
-        email, trusted_extra_domains=trusted_extra_domains)
+        email, trusted_extra_domains=trusted_extra_domains, resolver=resolver, include_typo=include_typo)
 
     # Registration-specific extras
     local = email.split("@")[0]
@@ -1530,8 +1627,14 @@ async def check_registration_suspicion(
     return is_suspicious, reasons
 
 
+_FORMAT_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
+
 def validate_email_format(email: str) -> tuple[bool, str | None]:
     """Validate email format only (not suspiciousness).
+
+    The whole string must match (``fullmatch``): ``re.match`` with ``$`` also
+    accepted a trailing newline, which Factory v2's JavaScript regex rejects.
 
     Returns:
         (is_valid, error_message)
@@ -1539,10 +1642,40 @@ def validate_email_format(email: str) -> tuple[bool, str | None]:
     if not email or "@" not in email:
         return False, "Invalid email format"
 
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+    if not _FORMAT_RE.fullmatch(email):
         return False, "Invalid email format"
 
     return True, None
+
+
+# Factory v2 validateDeliverability: documentation/test domains skip the MX gate.
+RESERVED_EMAIL_DOMAINS = frozenset(["example.com", "example.net", "example.org", "test.com"])
+RESERVED_EMAIL_SUFFIXES = (".test", ".invalid", ".localhost", ".example")
+
+
+def is_reserved_domain(domain: str) -> bool:
+    """RFC 2606/6761 names (and test.com) that never get an MX but are not abuse."""
+    return domain in RESERVED_EMAIL_DOMAINS or domain.endswith(RESERVED_EMAIL_SUFFIXES)
+
+
+async def validate_deliverability(
+    email: str,
+    *,
+    trusted_extra_domains: Iterable[str] = (),
+    resolver: DnsResolver | None = None,
+) -> bool:
+    """The v2 MX gate (Factory v2 validateDeliverability): False only for a definitive "no MX".
+
+    Reserved and trusted domains pass without DNS, a transient DNS failure
+    passes (benefit of the doubt), and so does a null MX: Factory v2 counts
+    "." as an answer. Guardpost reports the null MX as the weak ``null_mx``.
+    """
+    domain = get_email_domain(email)
+    if not domain:
+        return False
+    if is_reserved_domain(domain) or domain in TRUSTED_EMAIL_DOMAINS or domain in set(trusted_extra_domains):
+        return True
+    return await _resolve_mx_host(domain, resolver) is not None
 
 
 def clear_caches() -> None:

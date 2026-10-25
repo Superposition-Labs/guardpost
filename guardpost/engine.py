@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from guardpost.email.banned import BannedEmailEngine
 from guardpost.email.validator import (
+    DnsResolver,
     ReasonTier,
     check_registration_suspicion,
     classify_domain_typo,
@@ -27,6 +29,7 @@ from guardpost.email.validator import (
     validate_email_format,
 )
 from guardpost.ip.reputation import IPReputationEngine, subnet_key
+from guardpost.ledger.keys import TenantHasher
 from guardpost.storage.memory import MemoryStorage
 
 if TYPE_CHECKING:
@@ -208,6 +211,9 @@ class _Scope:
 # Hashed registration events are kept this long when no tenant config says otherwise.
 DEFAULT_SIGNALS_DAYS = 35
 
+# Tests/dev only: let keyed data use the database-stored generated secret.
+ALLOW_DB_SECRET_ENV = "GUARDPOST_ALLOW_DB_SECRET"
+
 
 class Guardpost:
     """Unified registration abuse detection engine.
@@ -237,6 +243,8 @@ class Guardpost:
         trusted_extra_domains: Iterable[str] | str | None = None,
         reason_tiers: Mapping[str, ReasonTier | str] | None = None,
         secret: str | None = None,
+        dns_resolver: DnsResolver | None = None,
+        allow_db_secret: bool | None = None,
         **ip_kwargs,
     ) -> None:
         """
@@ -250,6 +258,11 @@ class Guardpost:
             secret: the instance secret per-tenant keyed hashes derive from.
                 ``None`` reads GUARDPOST_SECRET, else a random secret is
                 generated once and kept in the storage backend.
+            dns_resolver: the DNS the v2 check asks (None: dnspython, cached).
+            allow_db_secret: let keyed data (the v2 ledger, HMAC bans) use the
+                generated database-stored secret (else GUARDPOST_ALLOW_DB_SECRET;
+                tests and development only: a secret stored next to the data
+                protects nothing).
 
         Tenancy: every method that touches tenant data takes ``tenant``. On a
         backend with tenancy (SQLite, memory) bans, stats, timeline and
@@ -273,7 +286,15 @@ class Guardpost:
             kind: ReasonTier(tier) for kind, tier in (reason_tiers or {}).items()
         }
         self.secret = secret
+        self.dns_resolver = dns_resolver
+        # "argument", "env" or "database" once initialize() resolved the secret.
+        self.secret_source: str | None = None
+        self._allow_db_secret = (
+            os.environ.get(ALLOW_DB_SECRET_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+            if allow_db_secret is None else allow_db_secret
+        )
         self._tenant_keys: dict[tuple[str, int], bytes] = {}
+        self._hashers: dict[tuple[str, int], TenantHasher] = {}
         # Per-tenant pattern detectors (in memory only; see _detector_for).
         self._pattern_detectors: dict[str, PatternDetector] = {}
         self._last_purge: float = 0.0
@@ -291,6 +312,7 @@ class Guardpost:
         await self.storage.initialize()
         if self.tenancy:
             self.secret = await self._resolve_secret()
+            await self._prepare_keyed_data()
         elif self.pattern_detector:
             # Hydrate the pattern detector from persisted registrations.
             # Tenancy backends persist no plaintext, so there is nothing to load.
@@ -302,15 +324,77 @@ class Guardpost:
     async def _resolve_secret(self) -> str:
         from guardpost.tenancy.crypto import INSTANCE_SECRET_META_KEY, SECRET_ENV, generate_secret
 
-        resolved = self.secret or os.environ.get(SECRET_ENV)
-        if resolved:
-            return resolved
+        if self.secret:
+            self.secret_source = "argument"
+            return self.secret
+        if os.environ.get(SECRET_ENV):
+            self.secret_source = "env"
+            return os.environ[SECRET_ENV]
+        self.secret_source = "database"
         if getattr(self.storage, "db_path", None) is not None:
             logger.warning(
                 "%s is not set: using a generated secret stored in the database. Set %s (and back it "
                 "up separately) so a copy of the database alone cannot re-identify hashed values.",
                 SECRET_ENV, SECRET_ENV)
         return await self.storage.ensure_meta(INSTANCE_SECRET_META_KEY, generate_secret())
+
+    @property
+    def keyed(self) -> bool:
+        """True when keyed data (HMAC bans, the v2 ledger) is in use.
+
+        It needs a real secret: GUARDPOST_SECRET or the ``secret`` argument.
+        The generated database-stored secret qualifies only with
+        GUARDPOST_ALLOW_DB_SECRET=1 (tests and development).
+        """
+        return self.tenancy and self.secret is not None and (
+            self.secret_source in ("argument", "env") or self._allow_db_secret)
+
+    def ledger_refusal(self) -> str | None:
+        """Why /api/v2 cannot serve on this instance, or None when it can."""
+        if not self.tenancy or not hasattr(self.storage, "transaction"):
+            return ("The v2 API needs the SQLite storage backend (GUARDPOST_STORAGE=sqlite): its ledger "
+                    "lives in the same database as tenants and bans.")
+        if not self.keyed:
+            return ("The v2 ledger needs GUARDPOST_SECRET. This instance runs on the generated secret stored "
+                    "in its own database, which would let anyone holding a copy of the database re-identify "
+                    "the hashed emails, devices and addresses. Set GUARDPOST_SECRET (and back it up separately), "
+                    f"or {ALLOW_DB_SECRET_ENV}=1 for tests and development only.")
+        return None
+
+    async def _prepare_keyed_data(self) -> None:
+        """Re-key sha256 bans once a real secret exists; refuse a secret that does not fit the data."""
+        from guardpost.ledger import rekey
+
+        if not hasattr(self.storage, "transaction"):
+            return
+        if self.keyed:
+            def run():
+                with self.storage.transaction() as conn:
+                    return rekey.ensure_keyed(conn, self.secret)
+
+            rekeyed = await asyncio.to_thread(run)
+            if rekeyed:
+                logger.info("Re-keyed %d bans from sha256 to per-tenant HMAC", rekeyed)
+            return
+        if await self.storage.get_meta(rekey.FINGERPRINT_META_KEY) is not None:
+            raise rekey.SecretMismatchError(
+                "This database's bans and v2 ledger are keyed with GUARDPOST_SECRET, but it is not set "
+                f"(or {ALLOW_DB_SECRET_ENV} was turned off). Set the secret the data was written with.")
+
+    def hasher(self, tenant: Tenant | None) -> TenantHasher:
+        """The tenant's keyed hasher (keyed mode only)."""
+        scope = self._scope(tenant)
+        cache_key = (scope.tenant_id, scope.key_version)
+        hasher = self._hashers.get(cache_key)
+        if hasher is None:
+            hasher = self._hashers[cache_key] = TenantHasher(self.secret, scope.tenant_id, scope.key_version)
+        return hasher
+
+    def _ban_keyer(self, tenant: Tenant | None):
+        """sha256 -> stored ban key: the tenant HMAC in keyed mode, else the sha256 itself."""
+        if not self.keyed:
+            return None
+        return self.hasher(tenant).email
 
     def _scope(self, tenant: Tenant | None) -> _Scope:
         legacy = getattr(self.storage, "legacy_tenant", None) if self.tenancy else None
@@ -434,7 +518,7 @@ class Guardpost:
         typo = classify_domain_typo(email) if "typo_domain" in reasons else None
 
         # Banned email check (per tenant)
-        is_banned = await self.ban_engine.is_banned(email, tenant_id=scope.tenant_id)
+        is_banned = await self.ban_engine.is_banned(email, tenant_id=scope.tenant_id, keyer=self._ban_keyer(tenant))
 
         # SMTP verification
         smtp_status = None
@@ -637,13 +721,16 @@ class Guardpost:
     async def ban_email(
         self, email: str, banned_by: str | None = None, reason: str | None = None, *, tenant: Tenant | None = None,
     ):
-        return await self.ban_engine.ban(email, banned_by, reason, tenant_id=self._scope(tenant).tenant_id)
+        return await self.ban_engine.ban(email, banned_by, reason, tenant_id=self._scope(tenant).tenant_id,
+                                         keyer=self._ban_keyer(tenant))
 
     async def unban_email(self, email: str, *, tenant: Tenant | None = None) -> bool:
-        return await self.ban_engine.unban(email, tenant_id=self._scope(tenant).tenant_id)
+        return await self.ban_engine.unban(email, tenant_id=self._scope(tenant).tenant_id,
+                                           keyer=self._ban_keyer(tenant))
 
     async def is_email_banned(self, email: str, *, tenant: Tenant | None = None) -> bool:
-        return await self.ban_engine.is_banned(email, tenant_id=self._scope(tenant).tenant_id)
+        return await self.ban_engine.is_banned(email, tenant_id=self._scope(tenant).tenant_id,
+                                               keyer=self._ban_keyer(tenant))
 
     async def check_ip(self, ip_address: str) -> tuple[str, str | None]:
         """Shared IP reputation (the same for every tenant)."""

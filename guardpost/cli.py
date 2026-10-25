@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> None:
 # directly; a running server sees the changes on its next request)
 # ---------------------------------------------------------------------------
 
-_ADMIN_COMMANDS = ("migrate", "tenant", "key", "ip")
+_ADMIN_COMMANDS = ("migrate", "tenant", "key", "ip", "purge", "ip-reputation")
 
 
 def _db_arg(p) -> None:
@@ -172,6 +172,20 @@ def _add_admin_commands(sub) -> None:
     i.add_argument("--reason", default="manual", help="Why (recorded)")
     _db_arg(i)
 
+    purge = sub.add_parser(
+        "purge",
+        help="Apply retention now: ledger signals (35 d), checks (24 h), events (400 d), idle clean IPs (90 d)")
+    _db_arg(purge)
+
+    rep = sub.add_parser("ip-reputation", help="Shared IP reputation data").add_subparsers(
+        dest="action", required=True)
+    r = rep.add_parser("import", help="Merge a JSON array (or JSON lines) of reputation rows into the shared table")
+    r.add_argument("file", help="Rows with ip_address, total_registrations, suspicious_registrations, "
+                                "first_registration_at, last_registration_at, status, status_reason, "
+                                "manually_whitelisted (Factory v2 ip_reputation columns); '-' reads stdin")
+    r.add_argument("--dry-run", action="store_true", help="Validate and count, write nothing")
+    _db_arg(r)
+
 
 class _CLIError(Exception):
     pass
@@ -218,6 +232,9 @@ async def _admin(args) -> None:
                 return
             applied = storage.migrate()
             await storage.ensure_tenant(storage.legacy_tenant)
+            rekeyed = _rekey_if_secret(storage)
+            if rekeyed:
+                print(f"{storage.db_path}: re-keyed {rekeyed} bans to per-tenant HMACs")
             if applied:
                 print(f"{storage.db_path}: applied {', '.join(f'{v:04d}' for v in applied)}; "
                       f"now at version {max(applied)}")
@@ -236,8 +253,80 @@ async def _admin(args) -> None:
             await _key(storage, args)
         elif args.command == "ip":
             await _ip(storage, args)
+        elif args.command == "purge":
+            await _purge(storage)
+        elif args.command == "ip-reputation":
+            await _ip_reputation_import(storage, args)
     finally:
         await storage.close()
+
+
+def _rekey_if_secret(storage) -> int:
+    """The keyed data migration (guardpost/ledger/rekey.py), when GUARDPOST_SECRET is set."""
+    import os
+
+    from guardpost.ledger import rekey
+    from guardpost.tenancy.crypto import SECRET_ENV
+
+    secret = os.environ.get(SECRET_ENV)
+    if not secret:
+        return 0
+    with storage.transaction() as conn:
+        return rekey.ensure_keyed(conn, secret)
+
+
+async def _purge(storage) -> None:
+    import time
+
+    from guardpost.ledger import store
+
+    tenants = await storage.list_tenants()
+    retention = {t.id: (t.config.retention.signals_days, t.config.retention.events_days) for t in tenants}
+    with storage.transaction() as conn:
+        counts = store.purge(conn, now=time.time(), tenant_retention=retention)
+    counts["registration_events"] = sum([
+        await storage.purge_registration_events(t.id, time.time() - t.config.retention.signals_days * store.DAY)
+        for t in tenants])
+    print(", ".join(f"{k}: {v}" for k, v in counts.items()))
+
+
+def _read_rows(path: str) -> list[dict]:
+    import json
+
+    text = sys.stdin.read() if path == "-" else open(path, encoding="utf-8").read()
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        rows = json.loads(stripped)
+    else:
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise _CLIError("expected a JSON array of objects, or one JSON object per line")
+    return rows
+
+
+async def _ip_reputation_import(storage, args) -> None:
+    from pydantic import ValidationError
+
+    from guardpost.api.v2 import IPReputationImport
+    from guardpost.ledger.service import ip_record_from_import, merge_ip_records
+    from guardpost.ledger.store import LedgerView
+
+    raw = _read_rows(args.file)
+    try:
+        records = [ip_record_from_import(IPReputationImport.model_validate(r)) for r in raw]
+    except ValidationError as exc:
+        raise _CLIError(f"invalid row: {exc}") from exc
+    inserted = 0
+    if not args.dry_run:
+        with storage.transaction() as conn:
+            view = LedgerView(conn, "")
+            for record in records:
+                existing = view.load_ip(record.ip_address)
+                inserted += existing is None
+                view.store_ip(merge_ip_records(existing, record))
+    verb = "would merge" if args.dry_run else "merged"
+    print(f"{verb} {len(records)} rows into the shared IP reputation table "
+          f"({inserted} new, {len(records) - inserted} updated)")
 
 
 async def _tenant(storage, args, json) -> None:

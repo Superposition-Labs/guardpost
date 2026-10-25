@@ -20,6 +20,23 @@ jobs:
       - run: pip install "ruff>=0.5"
       - run: ruff check guardpost/ tests/ scripts/
 
+  openapi:
+    # openapi/guardpost.json must match the app; the TS client is generated from it.
+    # The locked FastAPI/pydantic versions render it, so a dependency release alone
+    # never reports drift.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "uv>=0.5"
+      - run: uv sync --frozen --extra api
+      - name: Check openapi/guardpost.json for drift
+        run: uv run --no-sync python scripts/export_openapi.py --check
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -44,7 +61,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, openapi, test]
     # Never publish from a manual dispatch, even one run against main.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:

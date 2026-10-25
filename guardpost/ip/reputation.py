@@ -174,19 +174,40 @@ class IPReputationEngine:
         thresholds: _Thresholds,
     ) -> IPReputationRecord:
         """Increment one reputation record and re-evaluate it."""
+        return await self._update(
+            key, lambda record: self.apply_registration(record, key, is_suspicious, now, thresholds))
 
-        def mutate(record: IPReputationRecord | None) -> IPReputationRecord:
-            if record is None:
-                record = IPReputationRecord(ip_address=key, first_registration_at=now)
-            record.total_registrations += 1
-            if is_suspicious:
-                record.suspicious_registrations += 1
-            record.last_registration_at = now
-            if not record.manually_whitelisted:
-                self._evaluate_status(record, now, thresholds)
-            return record
+    def apply_registration(
+        self,
+        record: IPReputationRecord | None,
+        key: str,
+        is_suspicious: bool,
+        now: datetime,
+        thresholds: _Thresholds | None = None,
+    ) -> IPReputationRecord:
+        """The pure part of a bump: count one registration on ``record`` (or a new one).
 
-        return await self._update(key, mutate)
+        ``thresholds`` defaults to the per-IP tier, or the /24 tier when
+        ``key`` is a CIDR. The v2 ledger calls this inside its own transaction.
+        """
+        if thresholds is None:
+            thresholds = self._subnet_thresholds if "/" in key else self._ip_thresholds
+        if record is None:
+            record = IPReputationRecord(ip_address=key, first_registration_at=now)
+        record.total_registrations += 1
+        if is_suspicious:
+            record.suspicious_registrations += 1
+        record.last_registration_at = now
+        if not record.manually_whitelisted:
+            self._evaluate_status(record, now, thresholds)
+        return record
+
+    @staticmethod
+    def status_of(record: IPReputationRecord | None) -> tuple[str, str | None]:
+        """(status, reason) of a stored record; whitelisted or absent is clean."""
+        if record is None or record.manually_whitelisted:
+            return "clean", None
+        return record.status, record.status_reason
 
     async def _update(
         self,
@@ -275,6 +296,7 @@ class IPReputationEngine:
         """
         limits = thresholds or self._ip_thresholds
         old_status = record.status
+        old_reason = record.status_reason
 
         # Blacklist thresholds (higher priority)
         if record.suspicious_registrations >= limits.blacklist_suspicious:
@@ -289,6 +311,13 @@ class IPReputationEngine:
         elif self._check_volume_graylist(record, now, limits):
             record.status = "graylisted"
             record.status_reason = f"{record.total_registrations} total registrations (elevated volume)"
+
+        # Blacklisted is terminal (Factory v2 evaluateStatus): a volume-blacklisted
+        # record whose suspicious count later crosses the graylist line must not
+        # be downgraded. Only an admin whitelist clears it.
+        if old_status == "blacklisted" and record.status != "blacklisted":
+            record.status = old_status
+            record.status_reason = old_reason
 
         if record.status != old_status:
             record.status_changed_at = now

@@ -11,6 +11,7 @@ Start with:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -22,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from guardpost import __version__
-from guardpost.api import v1
+from guardpost.api import v1, v2
 from guardpost.api.auth import EnvAuthenticator, StoreAuthenticator, extract_credentials
 from guardpost.api.deps import get_engine, require_dashboard
 from guardpost.api.proxies import parse_trusted_proxies, request_client_ip, trusted_proxies_from_env
@@ -115,6 +116,9 @@ def create_app(
     storage_backend: str | None = None,
     multi_tenant: bool | None = None,
     storage=None,
+    dns_resolver=None,
+    allow_db_secret: bool | None = None,
+    purge_interval: float | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -131,6 +135,12 @@ def create_app(
         multi_tenant: refuse to boot on a backend without tenancy (else
             GUARDPOST_MULTI_TENANT). SQLite is always multi-tenant.
         storage: a storage object to use instead (tests).
+        dns_resolver: a guardpost.email.validator.DnsResolver for the v2
+            check (tests, parity runs); None uses dnspython.
+        allow_db_secret: let the v2 ledger run on the generated
+            database-stored secret (else GUARDPOST_ALLOW_DB_SECRET; tests only).
+        purge_interval: seconds between in-process retention purges of the v2
+            ledger (else GUARDPOST_PURGE_INTERVAL, default 3600; 0 disables).
         trusted_proxies: CIDRs/addresses of reverse proxies allowed to set
             X-Forwarded-For. ``None`` reads GUARDPOST_TRUSTED_PROXIES. Without
             any, the header is ignored and the TCP peer is the client.
@@ -201,6 +211,8 @@ def create_app(
             # None -> GUARDPOST_TRUSTED_EXTRA_DOMAINS
             trusted_extra_domains=trusted_extra_domains,
             secret=secret,
+            dns_resolver=dns_resolver,
+            allow_db_secret=allow_db_secret,
         )
         if engine.trusted_extra_domains:
             logger.info("Extra trusted domains: %s", ", ".join(sorted(engine.trusted_extra_domains)))
@@ -241,9 +253,26 @@ def create_app(
             logger.info("Prometheus metrics on http://%s:%d/metrics (separate listener)",
                         resolved_metrics_host, metrics_server.server_port)
 
+        purge_task = None
+        refusal = engine.ledger_refusal()
+        if refusal is None:
+            state.ledger = v2.LedgerService(engine)
+            interval = purge_interval if purge_interval is not None else float(
+                os.environ.get("GUARDPOST_PURGE_INTERVAL", "3600"))
+            if interval > 0:
+                purge_task = asyncio.create_task(_purge_loop(state.ledger, interval))
+        elif tenancy:
+            logger.warning("/api/v2 disabled: %s", refusal)
+
         try:
             yield
         finally:
+            if purge_task is not None:
+                purge_task.cancel()
+                try:
+                    await purge_task
+                except asyncio.CancelledError:
+                    pass
             if metrics_server is not None:
                 metrics_server.shutdown()
                 metrics_server.server_close()
@@ -251,6 +280,7 @@ def create_app(
             if state.redis is not None and state.redis is not resolved_storage:
                 await state.redis.close()
             state.engine = None
+            state.ledger = None
 
     app = FastAPI(
         title="Guardpost",
@@ -266,6 +296,7 @@ def create_app(
     app.state.open_context = None
     app.state.rate_limit = 0
     app.state.redis = None
+    app.state.ledger = None
     app.state.limiter = TokenBucket(rate=60)
     app.state.trusted_proxies = resolved_proxies
 
@@ -275,8 +306,8 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["X-Api-Key", "Authorization", "Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["X-Api-Key", "Authorization", "Content-Type", "Idempotency-Key"],
     )
 
     if resolved_proxies:
@@ -328,7 +359,22 @@ def create_app(
 
     _add_shell_routes(app)
     app.include_router(v1.router)
+    app.include_router(v2.router)
     return app
+
+
+async def _purge_loop(service, interval: float) -> None:
+    """Retention for the v2 ledger, in process: now, then every ``interval`` seconds."""
+    while True:
+        try:
+            counts = await service.purge()
+            if any(counts.values()):
+                logger.info("Retention purge: %s", counts)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Retention purge failed", exc_info=True)
+        await asyncio.sleep(interval)
 
 
 def _add_shell_routes(app: FastAPI) -> None:
