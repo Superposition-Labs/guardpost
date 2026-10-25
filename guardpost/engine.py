@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from guardpost.email.validator import (
     ReasonTier,
     check_registration_suspicion,
     classify_domain_typo,
+    has_suspicious_reason,
     is_b2c_email,
     is_disposable_email,
     is_role_account,
@@ -34,6 +36,7 @@ if TYPE_CHECKING:
     from guardpost.fraud.patterns import PatternDetector
     from guardpost.ip.proxy import ProxyDetector
     from guardpost.storage.base import StorageBackend
+    from guardpost.tenancy.models import Tenant
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +192,23 @@ def _compute_risk_score(
     return min(score, 100)
 
 
+@dataclass(frozen=True)
+class _Scope:
+    """The tenant-dependent settings one call runs with."""
+
+    # None on backends without tenancy (Redis, Mongo, Postgres).
+    tenant_id: str | None
+    key_version: int
+    trusted_extra_domains: frozenset[str]
+    reason_tiers: Mapping[str, ReasonTier]
+    flag_ua_domain: bool
+    signals_days: int
+
+
+# Hashed registration events are kept this long when no tenant config says otherwise.
+DEFAULT_SIGNALS_DAYS = 35
+
+
 class Guardpost:
     """Unified registration abuse detection engine.
 
@@ -216,6 +236,7 @@ class Guardpost:
         enrichment: EmailEnrichment | None = None,
         trusted_extra_domains: Iterable[str] | str | None = None,
         reason_tiers: Mapping[str, ReasonTier | str] | None = None,
+        secret: str | None = None,
         **ip_kwargs,
     ) -> None:
         """
@@ -226,6 +247,15 @@ class Guardpost:
                 GUARDPOST_TRUSTED_EXTRA_DOMAINS from the environment.
             reason_tiers: per-reason-kind tier overrides on top of
                 DEFAULT_REASON_TIERS (e.g. ``{"typo_domain": "hard"}``).
+            secret: the instance secret per-tenant keyed hashes derive from.
+                ``None`` reads GUARDPOST_SECRET, else a random secret is
+                generated once and kept in the storage backend.
+
+        Tenancy: every method that touches tenant data takes ``tenant``. On a
+        backend with tenancy (SQLite, memory) bans, stats, timeline and
+        pattern analysis are scoped to it (``None`` = the backend's legacy
+        tenant); the tenant's config also selects trusted domains, reason
+        tiers and region rules. IP reputation is shared by all tenants.
         """
         self.storage: StorageBackend = storage or MemoryStorage()
         self.ip_engine = IPReputationEngine(self.storage, **ip_kwargs)
@@ -242,21 +272,124 @@ class Guardpost:
         self.reason_tiers: dict[str, ReasonTier] = {
             kind: ReasonTier(tier) for kind, tier in (reason_tiers or {}).items()
         }
+        self.secret = secret
+        self._tenant_keys: dict[tuple[str, int], bytes] = {}
+        # Per-tenant pattern detectors (in memory only; see _detector_for).
+        self._pattern_detectors: dict[str, PatternDetector] = {}
         self._last_purge: float = 0.0
+        self._last_purge_by_tenant: dict[str, float] = {}
         self._purge_interval: float = 3600.0  # purge old registrations every hour
         self._registration_ttl: float = 86400.0  # keep registrations for 24 hours
+
+    @property
+    def tenancy(self) -> bool:
+        """True when the storage backend keeps per-tenant data."""
+        return bool(getattr(self.storage, "supports_tenancy", False))
 
     async def initialize(self) -> None:
         """Initialize storage (create tables/indexes)."""
         await self.storage.initialize()
-        # Hydrate pattern detector from persisted registrations
-        if self.pattern_detector:
-            import time
-
+        if self.tenancy:
+            self.secret = await self._resolve_secret()
+        elif self.pattern_detector:
+            # Hydrate the pattern detector from persisted registrations.
+            # Tenancy backends persist no plaintext, so there is nothing to load.
             cutoff = time.time() - self.pattern_detector.window_seconds
             recent = await self.storage.get_recent_registrations(cutoff)
             for reg in recent:
                 self.pattern_detector._registrations.append(reg)
+
+    async def _resolve_secret(self) -> str:
+        from guardpost.tenancy.crypto import INSTANCE_SECRET_META_KEY, SECRET_ENV, generate_secret
+
+        resolved = self.secret or os.environ.get(SECRET_ENV)
+        if resolved:
+            return resolved
+        if getattr(self.storage, "db_path", None) is not None:
+            logger.warning(
+                "%s is not set: using a generated secret stored in the database. Set %s (and back it "
+                "up separately) so a copy of the database alone cannot re-identify hashed values.",
+                SECRET_ENV, SECRET_ENV)
+        return await self.storage.ensure_meta(INSTANCE_SECRET_META_KEY, generate_secret())
+
+    def _scope(self, tenant: Tenant | None) -> _Scope:
+        legacy = getattr(self.storage, "legacy_tenant", None) if self.tenancy else None
+        if tenant is None:
+            return _Scope(legacy, 1, self.trusted_extra_domains, self.reason_tiers, False, DEFAULT_SIGNALS_DAYS)
+        cfg = tenant.config
+        trusted = (
+            self.trusted_extra_domains if cfg.email.trusted_extra_domains is None
+            else frozenset(cfg.email.trusted_extra_domains)
+        )
+        tiers = {**self.reason_tiers, **{k: ReasonTier(v) for k, v in cfg.email.reason_tiers.items()}}
+        return _Scope(
+            tenant.id if self.tenancy else None, tenant.key_version, trusted, tiers,
+            cfg.ua_domain_enabled, cfg.retention.signals_days,
+        )
+
+    def _ip_key(self, scope: _Scope, ip_address: str) -> str:
+        from guardpost.tenancy.crypto import keyed_hash, tenant_key
+
+        cache_key = (scope.tenant_id, scope.key_version)
+        key = self._tenant_keys.get(cache_key)
+        if key is None:
+            key = self._tenant_keys[cache_key] = tenant_key(self.secret, scope.tenant_id, scope.key_version)
+        return keyed_hash(key, ip_address, purpose="ip")
+
+    def _detector_for(self, scope: _Scope) -> PatternDetector | None:
+        """The pattern detector for a tenant.
+
+        With tenancy, each tenant gets its own detector, cloned from the
+        configured one. Analysis needs usernames, so it runs on an in-memory
+        window only: nothing plaintext is written to disk, and the window
+        starts empty after a restart.
+        """
+        if self.pattern_detector is None or scope.tenant_id is None:
+            return self.pattern_detector
+        detector = self._pattern_detectors.get(scope.tenant_id)
+        if detector is None:
+            from guardpost.fraud.patterns import PatternDetector
+
+            template = self.pattern_detector
+            detector = self._pattern_detectors[scope.tenant_id] = PatternDetector(
+                window_seconds=template.window_seconds,
+                similarity_threshold=template.similarity_threshold,
+                velocity_threshold=template.velocity_threshold,
+                ip_burst_threshold=template.ip_burst_threshold,
+            )
+        return detector
+
+    async def _record_event(self, scope: _Scope, ip_address: str | None, ip_record, suspicious: bool) -> None:
+        """Count a registration for the tenant: no email, a keyed hash of the IP."""
+        ip_status = None
+        if ip_record is not None:
+            ip_status = "whitelisted" if ip_record.manually_whitelisted else ip_record.status
+        await self.storage.record_registration_event(
+            scope.tenant_id,
+            ts=time.time(),
+            suspicious=suspicious,
+            ip_key=self._ip_key(scope, ip_address) if ip_address else None,
+            ip_status=ip_status,
+        )
+
+    async def _maybe_purge(self, scope: _Scope) -> None:
+        """Hourly retention purge (PII minimization)."""
+        now = time.time()
+        if scope.tenant_id is not None:
+            if now - self._last_purge_by_tenant.get(scope.tenant_id, 0.0) <= self._purge_interval:
+                return
+            self._last_purge_by_tenant[scope.tenant_id] = now
+            try:
+                await self.storage.purge_registration_events(scope.tenant_id, now - scope.signals_days * 86400)
+            except Exception:
+                logger.debug("Registration event purge failed", exc_info=True)
+            return
+        if now - self._last_purge > self._purge_interval:
+            self._last_purge = now
+            try:
+                await self.storage.purge_old_registrations(now - self._registration_ttl)
+            except Exception:
+                logger.debug("Registration purge failed", exc_info=True)
 
     async def close(self) -> None:
         """Release storage resources."""
@@ -274,6 +407,7 @@ class Guardpost:
         check_proxy: bool = False,
         ai_score: bool = False,
         enrich: bool = False,
+        tenant: Tenant | None = None,
     ) -> CheckResult:
         """Full registration suspicion check.
 
@@ -287,17 +421,20 @@ class Guardpost:
                          (requires ProxyDetector).
             ai_score: Whether to run AI email scoring (requires AIScorer).
             enrich: Whether to run enrichment lookups (Gravatar, HIBP).
+            tenant: whose bans, config and stats apply (None: legacy tenant).
 
         Returns:
             CheckResult with risk score, reasons, and status.
         """
+        scope = self._scope(tenant)
+
         # Email checks (pure, no storage needed)
         is_suspicious, reasons = await check_registration_suspicion(
-            email, trusted_extra_domains=self.trusted_extra_domains)
+            email, trusted_extra_domains=scope.trusted_extra_domains, flag_ua_domain=scope.flag_ua_domain)
         typo = classify_domain_typo(email) if "typo_domain" in reasons else None
 
-        # Banned email check
-        is_banned = await self.ban_engine.is_banned(email)
+        # Banned email check (per tenant)
+        is_banned = await self.ban_engine.is_banned(email, tenant_id=scope.tenant_id)
 
         # SMTP verification
         smtp_status = None
@@ -325,6 +462,7 @@ class Guardpost:
         is_proxy = False
         is_tor = False
         ip_provider = None
+        ip_record = None
 
         if ip_address:
             ip_status, ip_reason = await self.ip_engine.check_ip(ip_address)
@@ -332,7 +470,7 @@ class Guardpost:
             # contribute to the verdict passed on itself.
             subnet_status, subnet_reason = await self.ip_engine.check_subnet(ip_address)
             if record_ip:
-                await self.ip_engine.record_registration(ip_address, is_suspicious)
+                ip_record = await self.ip_engine.record_registration(ip_address, is_suspicious)
 
             # A dirty /24 whose individual IPs all look clean is the rotating
             # proxy pool signature — surface it as its own reason so the pattern
@@ -381,14 +519,16 @@ class Guardpost:
                                email.split("@")[-1] if "@" in email else "unknown", exc_info=True)
 
         # Pattern tracking (always record if detector is available)
-        if self.pattern_detector:
-            self.pattern_detector.add_registration(
+        detector = self._detector_for(scope)
+        if detector:
+            detector.add_registration(
                 email,
                 ip_address=ip_address,
             )
-            # Persist the registration event to storage
-            if self.pattern_detector._registrations:
-                last_reg = self.pattern_detector._registrations[-1]
+            # Pre-tenancy backends persist the registration (plaintext) for
+            # hydration; tenancy backends never write the email anywhere.
+            if not self.tenancy and detector._registrations:
+                last_reg = detector._registrations[-1]
                 try:
                     await self.storage.save_registration(last_reg)
                 except Exception:
@@ -417,21 +557,19 @@ class Guardpost:
         # feeds the score. `is_suspicious` from the email layer is recomputed
         # here rather than reused, because reasons added since (SMTP, proxy,
         # subnet) have tiers of their own, and the tiers may be overridden.
-        hard_reasons, soft_reasons, weak_reasons = partition_reasons(reasons, self.reason_tiers)
+        hard_reasons, soft_reasons, weak_reasons = partition_reasons(reasons, scope.reason_tiers)
         overall_suspicious = (
             bool(hard_reasons or soft_reasons) or is_banned or ip_status != "clean"
         )
         risk_score = _compute_risk_score(
             reasons, ip_status, is_banned, subnet_status)
 
-        # Periodic purge of old registration data (PII minimization)
-        now = time.time()
-        if now - self._last_purge > self._purge_interval:
-            self._last_purge = now
-            try:
-                await self.storage.purge_old_registrations(now - self._registration_ttl)
-            except Exception:
-                logger.debug("Registration purge failed", exc_info=True)
+        # The tenant's own registration count (stats, timeline). `record_ip`
+        # is the caller saying "this check is a registration".
+        if self.tenancy and record_ip:
+            await self._record_event(scope, ip_address, ip_record, overall_suspicious)
+
+        await self._maybe_purge(scope)
 
         return CheckResult(
             email=email,
@@ -479,8 +617,10 @@ class Guardpost:
     def is_disposable(email: str) -> bool:
         return is_disposable_email(email)
 
-    async def is_suspicious(self, email: str) -> tuple[bool, list[str]]:
-        return await is_suspicious_email(email, trusted_extra_domains=self.trusted_extra_domains)
+    async def is_suspicious(self, email: str, *, tenant: Tenant | None = None) -> tuple[bool, list[str]]:
+        scope = self._scope(tenant)
+        _, reasons = await is_suspicious_email(email, trusted_extra_domains=scope.trusted_extra_domains)
+        return has_suspicious_reason(reasons, scope.reason_tiers), reasons
 
     @staticmethod
     def is_role_account(email: str) -> bool:
@@ -494,27 +634,48 @@ class Guardpost:
     def validate_format(email: str) -> tuple[bool, str | None]:
         return validate_email_format(email)
 
-    async def ban_email(self, email: str, banned_by: str | None = None, reason: str | None = None):
-        return await self.ban_engine.ban(email, banned_by, reason)
+    async def ban_email(
+        self, email: str, banned_by: str | None = None, reason: str | None = None, *, tenant: Tenant | None = None,
+    ):
+        return await self.ban_engine.ban(email, banned_by, reason, tenant_id=self._scope(tenant).tenant_id)
 
-    async def unban_email(self, email: str) -> bool:
-        return await self.ban_engine.unban(email)
+    async def unban_email(self, email: str, *, tenant: Tenant | None = None) -> bool:
+        return await self.ban_engine.unban(email, tenant_id=self._scope(tenant).tenant_id)
 
-    async def is_email_banned(self, email: str) -> bool:
-        return await self.ban_engine.is_banned(email)
+    async def is_email_banned(self, email: str, *, tenant: Tenant | None = None) -> bool:
+        return await self.ban_engine.is_banned(email, tenant_id=self._scope(tenant).tenant_id)
 
     async def check_ip(self, ip_address: str) -> tuple[str, str | None]:
+        """Shared IP reputation (the same for every tenant)."""
         return await self.ip_engine.check_ip(ip_address)
 
+    async def record_ip_registration(self, ip_address: str, is_suspicious: bool, *, tenant: Tenant | None = None):
+        """Count a registration from an IP: shared reputation + the tenant's own stats."""
+        record = await self.ip_engine.record_registration(ip_address, is_suspicious)
+        if self.tenancy:
+            await self._record_event(self._scope(tenant), ip_address, record, is_suspicious)
+        return record
+
     async def whitelist_ip(self, ip_address: str, whitelisted_by: str, reason: str):
+        """Whitelist an IP or /24 in the shared reputation table (all tenants)."""
         return await self.ip_engine.whitelist_ip(ip_address, whitelisted_by, reason)
 
-    async def get_stats(self) -> dict:
-        """Get aggregate statistics from the storage backend."""
+    async def get_stats(self, *, tenant: Tenant | None = None) -> dict:
+        """Aggregate statistics — the tenant's own, on backends with tenancy."""
+        if self.tenancy:
+            return await self.storage.get_tenant_stats(self._scope(tenant).tenant_id)
         return await self.storage.get_stats()
 
     async def get_registration_timeline(
-        self, since: float, bucket_seconds: int = 3600
+        self, since: float, bucket_seconds: int = 3600, *, tenant: Tenant | None = None,
     ) -> list[dict]:
         """Get registration counts grouped by time bucket."""
+        if self.tenancy:
+            return await self.storage.get_registration_timeline(
+                since, bucket_seconds, tenant_id=self._scope(tenant).tenant_id)
         return await self.storage.get_registration_timeline(since, bucket_seconds)
+
+    def pattern_report(self, *, tenant: Tenant | None = None):
+        """The tenant's pattern analysis, or None when patterns are disabled."""
+        detector = self._detector_for(self._scope(tenant))
+        return detector.analyze() if detector else None

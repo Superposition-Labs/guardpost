@@ -9,6 +9,12 @@ services:
       - GUARDPOST_REDIS_URL=redis://redis:6379
       - GUARDPOST_API_KEY=${GUARDPOST_API_KEY:-}
       - GUARDPOST_RATE_LIMIT=${GUARDPOST_RATE_LIMIT:-0}
+      # Without any API key Guardpost refuses to start unless this is 1 (dev only).
+      - GUARDPOST_ALLOW_OPEN=${GUARDPOST_ALLOW_OPEN:-}
+      # Redis is the storage here (single tenant). For tenants, set
+      # GUARDPOST_STORAGE=sqlite: Redis then serves rate limiting only.
+      - GUARDPOST_STORAGE=${GUARDPOST_STORAGE:-}
+      - GUARDPOST_SECRET=${GUARDPOST_SECRET:-}
     depends_on:
       redis:
         condition: service_healthy

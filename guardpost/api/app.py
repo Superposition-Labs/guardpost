@@ -23,15 +23,42 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from guardpost import __version__
 from guardpost.api import v1
-from guardpost.api.auth import require_dashboard_auth
-from guardpost.api.deps import get_engine
+from guardpost.api.auth import EnvAuthenticator, StoreAuthenticator, extract_credentials
+from guardpost.api.deps import get_engine, require_dashboard
 from guardpost.api.proxies import parse_trusted_proxies, request_client_ip, trusted_proxies_from_env
 from guardpost.engine import Guardpost
-from guardpost.storage.sqlite import SQLiteStorage
+from guardpost.storage.sqlite import DEFAULT_LEGACY_TENANT, SQLiteStorage
+from guardpost.tenancy.keys import SCOPES, sync_legacy_key
+from guardpost.tenancy.models import Tenant, TenantContext, validate_tenant_id
 
 logger = logging.getLogger(__name__)
 
 _DASHBOARD_PATH = Path(__file__).resolve().parent / "dashboard.html"
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUTHY
+
+
+def open_mode_refusal(legacy_tenant: str) -> str:
+    return (
+        "Guardpost refuses to serve: no API keys are configured, so every route would be "
+        "unauthenticated. Do one of:\n"
+        f"  - set GUARDPOST_API_KEY (the single legacy key, acting as tenant {legacy_tenant!r});\n"
+        "  - create a tenant key: guardpost tenant create <id> && "
+        "guardpost key create --tenant <id> --label <name> --scopes check,lifecycle,dashboard;\n"
+        "  - or set GUARDPOST_ALLOW_OPEN=1 to run without authentication (local development only)."
+    )
+
+
+def multi_tenant_refusal(backend: str) -> str:
+    return (
+        f"Guardpost refuses to start: GUARDPOST_MULTI_TENANT=1 needs the SQLite storage backend, "
+        f"and {backend!r} keeps a single global ban list. Set GUARDPOST_STORAGE=sqlite "
+        "(GUARDPOST_REDIS_URL then serves rate limiting only), or unset GUARDPOST_MULTI_TENANT."
+    )
 
 
 class TokenBucket:
@@ -82,10 +109,28 @@ def create_app(
     trusted_proxies: list[str] | str | None = None,
     metrics_port: int | None = None,
     metrics_host: str | None = None,
+    allow_open: bool | None = None,
+    legacy_tenant: str | None = None,
+    secret: str | None = None,
+    storage_backend: str | None = None,
+    multi_tenant: bool | None = None,
+    storage=None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
     Args:
+        api_key: the legacy single key (else GUARDPOST_API_KEY). With SQLite
+            it is hashed into ``api_keys`` as key id ``legacy`` for
+            ``legacy_tenant`` (else GUARDPOST_LEGACY_TENANT, else "default").
+        allow_open: serve without authentication when no key exists at all
+            (else GUARDPOST_ALLOW_OPEN). Without it, that case refuses to boot.
+        secret: instance secret for per-tenant keyed hashes (else GUARDPOST_SECRET).
+        storage_backend: "sqlite" or "redis" (else GUARDPOST_STORAGE; default
+            "redis" when a Redis URL is given, for 0.2 compatibility). With
+            "sqlite" a Redis URL is used for rate limiting only.
+        multi_tenant: refuse to boot on a backend without tenancy (else
+            GUARDPOST_MULTI_TENANT). SQLite is always multi-tenant.
+        storage: a storage object to use instead (tests).
         trusted_proxies: CIDRs/addresses of reverse proxies allowed to set
             X-Forwarded-For. ``None`` reads GUARDPOST_TRUSTED_PROXIES. Without
             any, the header is ignored and the TCP peer is the client.
@@ -108,21 +153,46 @@ def create_app(
     async def lifespan(app: FastAPI):
         state = app.state
 
+        resolved_legacy = validate_tenant_id(
+            legacy_tenant or os.environ.get("GUARDPOST_LEGACY_TENANT") or DEFAULT_LEGACY_TENANT)
+        state.allow_open = _env_flag("GUARDPOST_ALLOW_OPEN") if allow_open is None else allow_open
+        require_tenancy = _env_flag("GUARDPOST_MULTI_TENANT") if multi_tenant is None else multi_tenant
+
         # --- Storage backend selection ---
         resolved_redis = redis_url or os.environ.get("GUARDPOST_REDIS_URL")
-        if resolved_redis:
+        backend = (storage_backend or os.environ.get("GUARDPOST_STORAGE")
+                   or ("redis" if resolved_redis else "sqlite")).strip().lower()
+        state.redis = None
+        if storage is not None:
+            resolved_storage = storage
+            backend = type(storage).__name__
+        elif backend == "redis":
+            if not resolved_redis:
+                raise RuntimeError("GUARDPOST_STORAGE=redis needs GUARDPOST_REDIS_URL")
             from guardpost.storage.redis import RedisStorage
 
-            storage = RedisStorage(resolved_redis)
-            state.redis = storage
+            resolved_storage = state.redis = RedisStorage(resolved_redis)
             logger.info("Using Redis 8 storage backend (%s)", resolved_redis)
-        else:
+        elif backend == "sqlite":
             resolved_db = db_path or os.environ.get("GUARDPOST_DB_PATH")
-            storage = SQLiteStorage(resolved_db) if resolved_db else SQLiteStorage()
-            state.redis = None
+            resolved_storage = SQLiteStorage(resolved_db, legacy_tenant=resolved_legacy)
+            if resolved_redis:
+                from guardpost.storage.redis import RedisStorage
+
+                state.redis = RedisStorage(resolved_redis)
+                await state.redis.initialize()
+                logger.info("Redis (%s) used for rate limiting only", resolved_redis)
+        else:
+            raise RuntimeError(f"unknown GUARDPOST_STORAGE {backend!r}: use sqlite or redis")
+
+        tenancy = bool(getattr(resolved_storage, "supports_tenancy", False))
+        if require_tenancy and not tenancy:
+            raise RuntimeError(multi_tenant_refusal(backend))
+        if not tenancy:
+            logger.warning("Storage %r has no tenancy: single-tenant mode (one key, one ban list)", backend)
 
         engine = Guardpost(
-            storage=storage,
+            storage=resolved_storage,
             smtp_verifier=_smtp_verifier(enable_smtp, smtp_timeout),
             proxy_detector=_proxy_detector(enable_proxy_detection, ipinfo_token, maxmind_db_path),
             ai_scorer=_ai_scorer(enable_ai, openrouter_api_key, ai_model, state.redis),
@@ -130,23 +200,37 @@ def create_app(
             enrichment=_enrichment(enable_enrichment, hibp_api_key),
             # None -> GUARDPOST_TRUSTED_EXTRA_DOMAINS
             trusted_extra_domains=trusted_extra_domains,
+            secret=secret,
         )
         if engine.trusted_extra_domains:
             logger.info("Extra trusted domains: %s", ", ".join(sorted(engine.trusted_extra_domains)))
         await engine.initialize()
+
+        # --- Authentication ---
+        env_key = api_key or os.environ.get("GUARDPOST_API_KEY")
+        if tenancy:
+            legacy = await resolved_storage.ensure_tenant(resolved_legacy)
+            await sync_legacy_key(resolved_storage, env_key, resolved_legacy)
+            state.authenticator = StoreAuthenticator(resolved_storage)
+        else:
+            legacy = Tenant(id=resolved_legacy, name=resolved_legacy)
+            state.authenticator = EnvAuthenticator(env_key, legacy)
+        state.open_context = TenantContext(tenant=legacy, scopes=SCOPES, key_id=None)
+        if not await state.authenticator.has_usable_keys():
+            if not state.allow_open:
+                await engine.close()
+                raise RuntimeError(open_mode_refusal(resolved_legacy))
+            logger.warning("No API keys and GUARDPOST_ALLOW_OPEN=1: the API is UNAUTHENTICATED "
+                           "(every request acts as tenant %r)", resolved_legacy)
         state.engine = engine
 
-        state.api_key = api_key or os.environ.get("GUARDPOST_API_KEY")
-        if state.api_key:
-            logger.info("API key authentication enabled")
-        else:
-            logger.warning("No API key set — API is unauthenticated")
-
+        # Instance default: per tenant for authenticated traffic (a tenant's
+        # rate_limit_per_minute overrides it), per IP for everything else.
         state.rate_limit = rate_limit or int(os.environ.get("GUARDPOST_RATE_LIMIT", "0"))
-        state.limiter = TokenBucket(rate=state.rate_limit or 60)
         if state.rate_limit:
             where = "via Redis" if state.redis else "in memory"
-            logger.info("Rate limiting enabled (%s): %d requests/min per IP", where, state.rate_limit)
+            logger.info("Rate limiting enabled (%s): %d requests/min per tenant, and per IP for "
+                        "unauthenticated traffic", where, state.rate_limit)
 
         metrics_server = None
         if metrics_enabled:
@@ -164,6 +248,8 @@ def create_app(
                 metrics_server.shutdown()
                 metrics_server.server_close()
             await engine.close()
+            if state.redis is not None and state.redis is not resolved_storage:
+                await state.redis.close()
             state.engine = None
 
     app = FastAPI(
@@ -175,7 +261,9 @@ def create_app(
     # Set before the lifespan runs, so a request that arrives without it
     # (a TestClient used outside its context) fails cleanly with 503.
     app.state.engine = None
-    app.state.api_key = None
+    app.state.authenticator = None
+    app.state.allow_open = False
+    app.state.open_context = None
     app.state.rate_limit = 0
     app.state.redis = None
     app.state.limiter = TokenBucket(rate=60)
@@ -188,23 +276,45 @@ def create_app(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["X-Api-Key", "Content-Type"],
+        allow_headers=["X-Api-Key", "Authorization", "Content-Type"],
     )
 
     if resolved_proxies:
         logger.info("Trusting X-Forwarded-For from: %s", ", ".join(map(str, resolved_proxies)))
 
     @app.middleware("http")
-    async def rate_limit_middleware(request: Request, call_next):
+    async def auth_and_rate_limit(request: Request, call_next):
+        """Resolve the API key once, then rate-limit per tenant or per IP.
+
+        Authenticated traffic is limited per tenant (all of its keys share one
+        bucket); only unauthenticated or rejected (401) traffic is limited per
+        client IP. The resolved TenantContext is left on request.state for the
+        route dependencies.
+        """
         state = request.app.state
-        if state.rate_limit:
+        ctx = None
+        authenticator = state.authenticator
+        if authenticator is not None:
+            for presented in extract_credentials(request):
+                ctx = await authenticator.authenticate(presented)
+                if ctx is not None:
+                    break
+        request.state.tenant_context = ctx
+
+        if ctx is not None:
+            limit = ctx.tenant.config.rate_limit_per_minute
+            limit = state.rate_limit if limit is None else limit
+            bucket = f"tenant:{ctx.tenant.id}"
+        else:
+            limit = state.rate_limit
             # X-Forwarded-For counts only when the peer is a trusted proxy;
             # otherwise any caller could pick the key it is limited under.
-            client_ip = request_client_ip(request, state.trusted_proxies)
+            bucket = f"ip:{request_client_ip(request, state.trusted_proxies)}"
+        if limit:
             if state.redis:
-                allowed = await state.redis.rate_limit_check(client_ip, state.rate_limit)
+                allowed = await state.redis.rate_limit_check(bucket, limit)
             else:
-                allowed = state.limiter.allow(client_ip)
+                allowed = state.limiter.allow(bucket, limit)
             if not allowed:
                 return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
         return await call_next(request)
@@ -224,7 +334,7 @@ def create_app(
 def _add_shell_routes(app: FastAPI) -> None:
     """Dashboard, favicon and the unauthenticated health probes."""
 
-    @app.get("/", include_in_schema=False, dependencies=[Depends(require_dashboard_auth)])
+    @app.get("/", include_in_schema=False, dependencies=[Depends(require_dashboard)])
     async def root():
         return RedirectResponse(url="/dashboard")
 
@@ -233,7 +343,7 @@ def _add_shell_routes(app: FastAPI) -> None:
         return JSONResponse(content={}, status_code=204)
 
     @app.get("/dashboard", response_class=HTMLResponse,
-             dependencies=[Depends(require_dashboard_auth)], include_in_schema=False)
+             dependencies=[Depends(require_dashboard)], include_in_schema=False)
     async def dashboard(request: Request):
         html = getattr(request.app.state, "dashboard_html", None)
         if html is None:

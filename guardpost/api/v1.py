@@ -1,7 +1,13 @@
 """The v1 REST API (``/api/v1/*``).
 
 Every route keeps its 0.2 path, request and response shape; changes are
-additive only.
+additive only. Each route acts as the tenant of the request's API key:
+bans, stats, timeline and pattern report are that tenant's own; IP
+reputation is shared by all tenants.
+
+Scopes: health needs any valid key; ``check`` for evaluation routes,
+``lifecycle`` for bans and /ip/record, ``dashboard`` for stats, timeline and
+the pattern report. The legacy key's ``legacy`` scope covers all of them.
 """
 
 from __future__ import annotations
@@ -9,12 +15,11 @@ from __future__ import annotations
 import ipaddress
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from guardpost import __version__
-from guardpost.api.auth import require_api_key
-from guardpost.api.deps import EngineDep
+from guardpost.api.deps import CheckScope, DashboardScope, EngineDep, LifecycleScope, TenantDep
 from guardpost.email.validator import classify_domain_typo
 
 router = APIRouter()
@@ -254,41 +259,37 @@ class PatternReportResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/v1/health", response_model=HealthResponse,
-            dependencies=[Depends(require_api_key)])
-async def health():
+@router.get("/api/v1/health", response_model=HealthResponse)
+async def health(ctx: TenantDep):
     return HealthResponse(version=__version__)
 
 
 @router.get(
     "/api/v1/stats",
     response_model=StatsResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def stats(engine: EngineDep):
+async def stats(ctx: DashboardScope, engine: EngineDep):
     """Aggregate statistics: IP counts, ban counts, registration totals."""
-    data = await engine.get_stats()
+    data = await engine.get_stats(tenant=ctx.tenant)
     return StatsResponse(**data)
 
 @router.get(
     "/api/v1/stats/timeline",
     response_model=TimelineResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def stats_timeline(engine: EngineDep, hours: int = 24, bucket_minutes: int = 60):
+async def stats_timeline(ctx: DashboardScope, engine: EngineDep, hours: int = 24, bucket_minutes: int = 60):
     """Registration activity over time, grouped into buckets."""
     hours = min(hours, 168)  # cap at 7 days
     bucket_minutes = max(1, min(bucket_minutes, 1440))
     since = time.time() - hours * 3600
-    buckets = await engine.get_registration_timeline(since, bucket_minutes * 60)
+    buckets = await engine.get_registration_timeline(since, bucket_minutes * 60, tenant=ctx.tenant)
     return TimelineResponse(buckets=buckets, bucket_seconds=bucket_minutes * 60)
 
 @router.post(
     "/api/v1/check",
     response_model=CheckResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def check_registration(engine: EngineDep, req: CheckRequest):
+async def check_registration(ctx: CheckScope, engine: EngineDep, req: CheckRequest):
     """Full registration suspicion check (email + IP + optional SMTP/proxy)."""
     result = await engine.check(
         req.email,
@@ -298,6 +299,7 @@ async def check_registration(engine: EngineDep, req: CheckRequest):
         check_proxy=req.check_proxy,
         ai_score=req.ai_score,
         enrich=req.enrich,
+        tenant=ctx.tenant,
     )
 
     # Record Prometheus metrics if enabled
@@ -313,15 +315,14 @@ async def check_registration(engine: EngineDep, req: CheckRequest):
 @router.post(
     "/api/v1/email/validate",
     response_model=EmailValidateResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def validate_email(engine: EngineDep, req: EmailValidateRequest):
+async def validate_email(ctx: CheckScope, engine: EngineDep, req: EmailValidateRequest):
     """Email-only validation (no IP, no storage)."""
     is_valid, format_error = engine.validate_format(req.email)
     is_disposable = engine.is_disposable(req.email)
     is_role = engine.is_role_account(req.email)
     is_b2c = engine.is_b2c(req.email)
-    is_suspicious, reasons = await engine.is_suspicious(req.email)
+    is_suspicious, reasons = await engine.is_suspicious(req.email, tenant=ctx.tenant)
     normalized = engine.normalize_email(req.email)
     typo = classify_domain_typo(req.email) if "typo_domain" in reasons else None
 
@@ -342,9 +343,8 @@ async def validate_email(engine: EngineDep, req: EmailValidateRequest):
 @router.post(
     "/api/v1/email/smtp",
     response_model=SMTPVerifyResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def smtp_verify(engine: EngineDep, req: SMTPVerifyRequest):
+async def smtp_verify(ctx: CheckScope, engine: EngineDep, req: SMTPVerifyRequest):
     """SMTP mailbox verification (requires port 25 access)."""
     if not engine.smtp_verifier:
         raise HTTPException(
@@ -357,9 +357,8 @@ async def smtp_verify(engine: EngineDep, req: SMTPVerifyRequest):
 @router.post(
     "/api/v1/ip/check",
     response_model=IPCheckResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def check_ip(engine: EngineDep, req: IPCheckRequest):
+async def check_ip(ctx: CheckScope, engine: EngineDep, req: IPCheckRequest):
     """Check IP reputation."""
     status, reason = await engine.check_ip(req.ip_address)
     return IPCheckResponse(ip_address=req.ip_address, status=status, reason=reason)
@@ -367,11 +366,10 @@ async def check_ip(engine: EngineDep, req: IPCheckRequest):
 @router.post(
     "/api/v1/ip/record",
     response_model=IPCheckResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def record_ip(engine: EngineDep, req: IPRecordRequest):
+async def record_ip(ctx: LifecycleScope, engine: EngineDep, req: IPRecordRequest):
     """Record a registration from an IP."""
-    record = await engine.ip_engine.record_registration(req.ip_address, req.is_suspicious)
+    record = await engine.record_ip_registration(req.ip_address, req.is_suspicious, tenant=ctx.tenant)
     return IPCheckResponse(
         ip_address=req.ip_address,
         status=record.status,
@@ -381,9 +379,8 @@ async def record_ip(engine: EngineDep, req: IPRecordRequest):
 @router.post(
     "/api/v1/ip/proxy",
     response_model=ProxyCheckResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def check_proxy(engine: EngineDep, req: ProxyCheckRequest):
+async def check_proxy(ctx: CheckScope, engine: EngineDep, req: ProxyCheckRequest):
     """Check if an IP is a VPN, proxy, datacenter, or Tor exit node."""
     if not engine.proxy_detector:
         raise HTTPException(
@@ -396,11 +393,10 @@ async def check_proxy(engine: EngineDep, req: ProxyCheckRequest):
 @router.post(
     "/api/v1/email/ban",
     response_model=BanResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def ban_email(engine: EngineDep, req: BanRequest):
+async def ban_email(ctx: LifecycleScope, engine: EngineDep, req: BanRequest):
     """Add email to permanent ban list."""
-    record = await engine.ban_email(req.email, req.banned_by, req.reason)
+    record = await engine.ban_email(req.email, req.banned_by, req.reason, tenant=ctx.tenant)
     return BanResponse(
         email=req.email,
         normalized_email_hash=record.normalized_email_hash,
@@ -410,11 +406,10 @@ async def ban_email(engine: EngineDep, req: BanRequest):
 @router.delete(
     "/api/v1/email/ban",
     response_model=BanResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def unban_email(engine: EngineDep, req: UnbanRequest):
+async def unban_email(ctx: LifecycleScope, engine: EngineDep, req: UnbanRequest):
     """Remove email from ban list."""
-    was_banned = await engine.unban_email(req.email)
+    was_banned = await engine.unban_email(req.email, tenant=ctx.tenant)
     return BanResponse(
         email=req.email,
         normalized_email_hash="",
@@ -424,9 +419,8 @@ async def unban_email(engine: EngineDep, req: UnbanRequest):
 @router.post(
     "/api/v1/ai/score",
     response_model=AIScoreResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def ai_score_email(engine: EngineDep, req: AIScoreRequest):
+async def ai_score_email(ctx: CheckScope, engine: EngineDep, req: AIScoreRequest):
     """AI-powered email risk scoring (hosted feature)."""
     if not engine.ai_scorer:
         raise HTTPException(
@@ -439,9 +433,8 @@ async def ai_score_email(engine: EngineDep, req: AIScoreRequest):
 @router.post(
     "/api/v1/ai/score/batch",
     response_model=AIBatchResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def ai_score_batch(engine: EngineDep, req: AIBatchRequest):
+async def ai_score_batch(ctx: CheckScope, engine: EngineDep, req: AIBatchRequest):
     """Batch AI email scoring (hosted feature)."""
     if not engine.ai_scorer:
         raise HTTPException(
@@ -456,15 +449,13 @@ async def ai_score_batch(engine: EngineDep, req: AIBatchRequest):
 @router.get(
     "/api/v1/patterns/report",
     response_model=PatternReportResponse,
-    dependencies=[Depends(require_api_key)],
 )
-async def pattern_report(engine: EngineDep):
+async def pattern_report(ctx: DashboardScope, engine: EngineDep):
     """Get registration pattern analysis report."""
-    if not engine.pattern_detector:
+    report = engine.pattern_report(tenant=ctx.tenant)
+    if report is None:
         raise HTTPException(
             status_code=501,
             detail="Pattern detection not enabled. Set GUARDPOST_ENABLE_PATTERNS=1",
         )
-    report = engine.pattern_detector.analyze()
     return PatternReportResponse(**report.to_dict())
-

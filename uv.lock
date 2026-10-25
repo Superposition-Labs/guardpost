@@ -598,6 +598,7 @@ name = "guardpost-server"
 source = { editable = "." }
 dependencies = [
     { name = "dnspython" },
+    { name = "pydantic" },
 ]
 
 [package.optional-dependencies]
@@ -680,6 +681,7 @@ requires-dist = [
     { name = "prometheus-client", marker = "extra == 'dev'", specifier = ">=0.20" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20" },
     { name = "prometheus-client", marker = "extra == 'server'", specifier = ">=0.20" },
+    { name = "pydantic", specifier = ">=2.6,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },

@@ -52,21 +52,37 @@ def _hash_email(email: str) -> str:
 
 
 class BannedEmailEngine:
-    """Manage permanently banned emails with pluggable storage."""
+    """Manage permanently banned emails with pluggable storage.
+
+    ``tenant_id`` scopes a ban to one tenant on backends that support tenancy
+    (SQLite, memory); None means the backend's legacy tenant. It is not passed
+    at all when None, so pre-tenancy backends keep working.
+    """
 
     def __init__(self, storage: StorageBackend) -> None:
         self.storage = storage
 
-    async def is_banned(self, email: str) -> bool:
-        """Check if an email is permanently banned."""
-        email_hash = _hash_email(email)
-        return await self.storage.is_email_banned(email_hash)
+    @staticmethod
+    def _scope(tenant_id: str | None) -> dict:
+        return {"tenant_id": tenant_id} if tenant_id is not None else {}
 
-    async def ban(self, email: str, banned_by: str | None = None, reason: str | None = None) -> BannedEmailRecord:
+    async def is_banned(self, email: str, *, tenant_id: str | None = None) -> bool:
+        """Check if an email is permanently banned."""
+        return await self.storage.is_email_banned(_hash_email(email), **self._scope(tenant_id))
+
+    async def ban(
+        self,
+        email: str,
+        banned_by: str | None = None,
+        reason: str | None = None,
+        *,
+        tenant_id: str | None = None,
+    ) -> BannedEmailRecord:
         """Add an email to the permanent ban list."""
         email_hash = _hash_email(email)
+        scope = self._scope(tenant_id)
 
-        existing = await self.storage.get_banned_email(email_hash)
+        existing = await self.storage.get_banned_email(email_hash, **scope)
         if existing is not None:
             return existing
 
@@ -75,10 +91,9 @@ class BannedEmailEngine:
             banned_by=banned_by,
             reason=reason,
         )
-        await self.storage.save_banned_email(record)
+        await self.storage.save_banned_email(record, **scope)
         return record
 
-    async def unban(self, email: str) -> bool:
+    async def unban(self, email: str, *, tenant_id: str | None = None) -> bool:
         """Remove an email from the ban list. Returns True if it was banned."""
-        email_hash = _hash_email(email)
-        return await self.storage.delete_banned_email(email_hash)
+        return await self.storage.delete_banned_email(_hash_email(email), **self._scope(tenant_id))
