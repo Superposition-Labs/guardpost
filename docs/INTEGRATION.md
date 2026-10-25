@@ -113,7 +113,7 @@ Unknown fields are rejected (`422`), so a typo fails loudly.
   "suggestion": null,
   "signals": {"method": "email", "ip_status": "clean", "subnet_status": "graylisted", "...": "..."},
   "mode": "commit", "committed": true, "account_id": "u_123",
-  "occurred_at": "2026-10-25T10:00:00Z", "ruleset": "2026.11-1", "engine_version": "0.4.0"
+  "occurred_at": "2026-10-25T10:00:00Z", "ruleset": "2026.11-2", "engine_version": "0.4.0"
 }
 ```
 
@@ -129,6 +129,10 @@ Unknown fields are rejected (`422`), so a typo fails loudly.
 - `referral` is the verdict on the referral the request carried (null without one): `attribute`
   false means do not record it at all; `suspicious` true means record it flagged (no referral bonus).
 - `ruleset` identifies the rule set; compare it when you compare decisions with your own rules.
+- The shared IP reputation is shown as a status only: `graylisted_ip:graylisted`,
+  `blacklisted_ip:blacklisted`, and `signals.ip_reason` / `subnet_reason` are null, because the
+  stored reasons count other tenants' signups. Compare these two reasons with your own on the kind
+  ([RULES.md](RULES.md#shared-ip-reason-detail)).
 
 [RULES.md](RULES.md) lists every reason, its tier, its detail and its evidence.
 

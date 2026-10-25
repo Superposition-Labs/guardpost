@@ -12,7 +12,7 @@
 #      deploy/scripts/restore-drill.sh restores it.
 #
 #   scripts/smoke.sh                       # builds the image from this checkout
-#   SMOKE_IMAGE=ghcr.io/superposition-labs/guardpost:0.3 scripts/smoke.sh   # a released image
+#   SMOKE_IMAGE=ghcr.io/superposition-labs/guardpost:0.4 scripts/smoke.sh   # a released image
 #   SMOKE_LITESTREAM=1 scripts/smoke.sh    # also replication + the restore drill
 #   SMOKE_KEEP=1 scripts/smoke.sh          # leave everything running for a look
 set -euo pipefail

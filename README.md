@@ -24,7 +24,8 @@ to disk.
     refreshed weekly), throwaway keywords, MX infrastructure fingerprinting, role accounts (43 core
     prefixes and 157 extended), dotted-Gmail noise, multiple `+` aliases, the RU `.ua` rule,
     homographs and null MX;
-  - shared IP and /24 reputation (graylist, blacklist, `subnet_burst`) with per-tenant overrides;
+  - shared IP and /24 reputation (graylist, blacklist, `subnet_burst`) with per-tenant overrides,
+    shown to each tenant as a status only (no counts from other tenants' signups);
   - device repeat (the same fingerprint on the same /24), same person (the same IP and device, or
     the same name in any script on the same network or device), and referral flags (same IP,
     referrer velocity).

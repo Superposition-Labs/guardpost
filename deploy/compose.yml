@@ -21,7 +21,7 @@ x-logging: &logging
 services:
   guardpost:
     # Pinned to a release minor; RU sets GUARDPOST_IMAGE to its mirror (GHCR pulls from Russia fail).
-    image: ${GUARDPOST_IMAGE:-ghcr.io/superposition-labs/guardpost:0.3}
+    image: ${GUARDPOST_IMAGE:-ghcr.io/superposition-labs/guardpost:0.4}
     pull_policy: missing
     restart: unless-stopped
     init: true
@@ -38,6 +38,7 @@ services:
       GUARDPOST_ENABLE_PATTERNS: ${GUARDPOST_ENABLE_PATTERNS:-}
       GUARDPOST_PURGE_INTERVAL: ${GUARDPOST_PURGE_INTERVAL:-3600}
       GUARDPOST_CORS_ORIGINS: ${GUARDPOST_CORS_ORIGINS:-}
+      GUARDPOST_ALLOW_FULL_REASON_DETAIL: ${GUARDPOST_ALLOW_FULL_REASON_DETAIL:-}
       GUARDPOST_ENABLE_METRICS: "1"
       GUARDPOST_METRICS_PORT: "9100"
     volumes:

@@ -125,6 +125,9 @@ docker compose exec guardpost guardpost purge
 - **`GUARDPOST_SECRET` cannot be rotated** without a re-backfill ([PRIVACY.md](PRIVACY.md#guardpost_secret)).
 - `tenant config-set` validates and rejects unknown keys; `tenant show` prints the effective config
   ([RULES.md](RULES.md#per-tenant-settings) lists the settings).
+- `ip.reason_detail=full` (the shared IP status reasons, with counts) is honoured only while the
+  tenant is the only active one that has held a key; `config-set` warns otherwise. Suspend
+  tenants you no longer use, or set `GUARDPOST_ALLOW_FULL_REASON_DETAIL=1` deliberately.
 
 ## Configuration reference
 
@@ -147,6 +150,7 @@ from `.env` through `compose.yml`.
 | `GUARDPOST_TRUSTED_PROXIES` | none | CIDRs of proxies allowed to set `X-Forwarded-For`; without any, the header is ignored |
 | `GUARDPOST_TRUSTED_EXTRA_DOMAINS` | none | Comma-separated app-internal domains treated as trusted (instance default; a tenant's `email.trusted_extra_domains` replaces it) |
 | `GUARDPOST_CORS_ORIGINS` | none | Comma-separated origins allowed by CORS (none: no browser access) |
+| `GUARDPOST_ALLOW_FULL_REASON_DETAIL` | off | `1` honours a tenant's `ip.reason_detail=full` even with other tenants on the instance (their signups' counts then show; [RULES.md](RULES.md#shared-ip-reason-detail)) |
 | `GUARDPOST_ENABLE_METRICS` | off (kit: `1`) | Prometheus metrics on a separate listener |
 | `GUARDPOST_METRICS_PORT` | `9100` | Metrics port |
 | `GUARDPOST_METRICS_HOST` | the API `--host` (`127.0.0.1` outside the CLI; image `0.0.0.0`) | Metrics bind address |
@@ -170,7 +174,7 @@ Deploy kit only (`compose.yml`, the scripts):
 | -------- | ------- | ------- |
 | `COMPOSE_PROFILES` | none (env.example: `litestream`) | `litestream` runs the replication sidecar |
 | `COMPOSE_FILE` | `compose.yml` | add `compose.dashboard.yml` for the loopback port |
-| `GUARDPOST_IMAGE` | `ghcr.io/superposition-labs/guardpost:0.3` | the server image (RU: the mirror) |
+| `GUARDPOST_IMAGE` | `ghcr.io/superposition-labs/guardpost:0.4` | the server image (RU: the mirror) |
 | `GUARDPOST_NETWORK` | `factory_network` | the app's external docker network |
 | `GUARDPOST_VOLUME` | `guardpost_data` | the data volume's name |
 | `GUARDPOST_LOCAL_PORT` | `8200` | loopback port of `compose.dashboard.yml` |
@@ -281,7 +285,7 @@ refuses to boot by design).
 ## Upgrading
 
 Releases are tagged `vX.Y.Z` and publish `:X.Y.Z`, `:X.Y` and `:latest`; `main` publishes only
-`:edge` and `:<sha>`. Pin the minor (`:0.3`) and move it on purpose:
+`:edge` and `:<sha>`. Pin the minor (`:0.4`) and move it on purpose:
 
 ```bash
 cd /opt/guardpost
@@ -381,7 +385,7 @@ In the window (`OLD` is the volume name printed above):
    ```
 
    (`factory_backend` is v1's backend container; `docker ps --format '{{.Names}}'` lists the names.)
-   The health answer shows the 0.3 version. Then create Factory v2's key
+   The health answer shows the new version (0.4.x). Then create Factory v2's key
    ([First boot](#first-boot) step 3) for later.
 
 5. **Remove the sidecar from the app compose files in the same window**: merge and deploy the

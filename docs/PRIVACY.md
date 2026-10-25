@@ -53,9 +53,13 @@ constant time. The database records a fingerprint of `GUARDPOST_SECRET`, never t
 | `tenant_counters`: per-tenant totals of v1 registrations | the v1 dashboard | no |
 
 What another tenant can learn from the shared table: whether an address or /24 is graylisted or
-blacklisted. `signals.ip_reason` / `subnet_reason` (and the `graylisted_ip:` / `blacklisted_ip:`
-detail) carry the status reason, which names a count (`5 suspicious registrations`). Nothing in a
-response tells a tenant which other tenant's signups produced it.
+blacklisted, and nothing more. The stored status reasons name counts (`5 suspicious
+registrations`) that every tenant's signups produced, so responses carry the status only
+(`graylisted_ip:graylisted`, null `signals.ip_reason` / `subnet_reason`). A tenant can ask for
+the full text (`ip.reason_detail = full`); it gets it only while it is the instance's only active
+tenant that has held a key, or when the operator sets `GUARDPOST_ALLOW_FULL_REASON_DETAIL=1`
+([RULES.md](RULES.md#shared-ip-reason-detail)). The legacy tenant's v1 routes keep 0.2's strings.
+Nothing in any response tells a tenant which other tenant's signups moved a counter.
 
 With `GUARDPOST_ENABLE_PATTERNS` the v1 pattern report keeps a window of recent v1 registrations,
 addresses included, in memory only: it is never written and starts empty after a restart. The v2

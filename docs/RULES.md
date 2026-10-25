@@ -5,7 +5,7 @@ ports of Factory v2's signup code (`src/modules/auth/register.ts`, `oauth.ts`, `
 `same-person.ts`, `email-validation.ts`, `referrals/signup.ts`) with the same windows, thresholds and
 short-circuits. [`parity/vectors.json`](../parity/vectors.json) pins them: function vectors computed
 by running v2's TypeScript, and end-to-end scenarios that both Guardpost
-(`tests/test_parity_vectors.py`) and Factory v2 run. The current rule set is `2026.11-1`
+(`tests/test_parity_vectors.py`) and Factory v2 run. The current rule set is `2026.11-2`
 (`ruleset` in every response; `guardpost/rules/__init__.py`).
 
 ## How a decision is made
@@ -55,7 +55,7 @@ compare kinds when comparing with Factory, since some details differ (see the la
 | `undeliverable_domain` | `undeliverable_domain` | `EMAIL_DOMAIN_UNDELIVERABLE` | | `EMAIL_DOMAIN_UNDELIVERABLE` (no MX; reserved test domains pass) |
 | `banned_email` | `banned_email` | `EMAIL_BANNED` | | 400, permanent `banned_emails` |
 | `alias_collision` | `alias_collision:<account_id>` | `EMAIL_ALIAS_EXISTS` | `account_id` | 400 "An account with this email already exists" (same normalized address) |
-| `blacklisted_ip` | `blacklisted_ip:<status reason>`, e.g. `blacklisted_ip:8 suspicious registrations`, `blacklisted_ip:tenant override (ip)` | `IP_BLACKLISTED` | | 400 on a blacklisted `ip_reputation` row |
+| `blacklisted_ip` | `blacklisted_ip:blacklisted`; a tenant's own block override: `blacklisted_ip:tenant override (ip)` (or `(net24)`) | `IP_BLACKLISTED` | | 400 on a blacklisted `ip_reputation` row; Factory's detail is the status reason, see [below](#shared-ip-reason-detail) |
 
 Any other reason promoted to `hard` by a tenant blocks with `POLICY_BLOCK`.
 
@@ -86,7 +86,7 @@ heuristics (`role_account`, `dot_noise_local`, `multiple_aliases`, `ua_domain`) 
 
 | Kind | `code` | Evidence | When | Factory v2 |
 | ---- | ------ | -------- | ---- | ---------- |
-| `graylisted_ip` | `graylisted_ip:<status reason>`, e.g. `graylisted_ip:5 suspicious registrations` | | the address is graylisted in the shared reputation | same |
+| `graylisted_ip` | `graylisted_ip:graylisted` | | the address is graylisted in the shared reputation | `graylisted_ip:<status reason>`, see [below](#shared-ip-reason-detail) |
 | `subnet_burst` | `subnet_burst:<a.b.c.0/24>` | | the address is clean but its /24 is graylisted or blacklisted | same |
 | `device_repeat` | `device_repeat:<n>` | `prior_accounts` | at least 2 earlier accounts in 7 days with the same fingerprint on the same /24 (the exact address for IPv6); a non-global address never matches | same |
 | `same_device` | `same_device:<account_id>` | `account_id` | an account in the last 7 days with the exact IP and fingerprint (global addresses only) | `same_device:<email>` |
@@ -95,6 +95,24 @@ heuristics (`role_account`, `dot_noise_local`, `multiple_aliases`, `ua_domain`) 
 The shared IP thresholds (per address / per /24): graylist at 5 / 8 suspicious registrations or
 15 / 25 in 7 days; blacklist at 8 / 15 suspicious or 30 / 50 in 30 days. Blacklisted is terminal
 until an admin whitelists it (`guardpost ip whitelist --global`) or a tenant overrides it.
+
+### Shared IP reason detail
+
+The shared reputation's status reasons (`5 suspicious registrations`, `30 total registrations
+(high volume)`) count every tenant's signups. So by default (`ip.reason_detail = "status"`) a v2
+response names the status only: `graylisted_ip:graylisted`, `blacklisted_ip:blacklisted`, and
+`signals.ip_reason` / `subnet_reason` are null. `subnet_burst:<cidr>` keeps its detail: the /24 is
+that of the caller's own address.
+
+`ip.reason_detail = "full"` restores the reason text (`graylisted_ip:5 suspicious registrations`,
+as Factory v2 emits it). It is honoured only while no other active tenant that has ever held an
+API key shares the instance, or when the operator sets `GUARDPOST_ALLOW_FULL_REASON_DETAIL=1`;
+otherwise it falls back to the status (and `tenant config-set` warns). A suspended tenant, or the
+auto-created legacy tenant that never had a key, does not count.
+
+The v1 routes keep 0.2's exact strings for the legacy tenant (`GUARDPOST_API_KEY`), so the v1
+benchmark is unaffected; other tenants' v1 `ip_reason`, `subnet_reason` and `/api/v1/ip/*`
+reasons follow their `ip.reason_detail` the same way.
 
 ### Referral verdict
 
@@ -133,6 +151,7 @@ Defaults are Factory v2's:
 | ------- | ------- | ---- |
 | `region` | none | `ru` turns on `ua_domain` |
 | `region_rules.ua_domain` | follows `region` | force `ua_domain` on or off |
+| `ip.reason_detail` | `status` | `full` shows the shared IP status reasons ([conditions](#shared-ip-reason-detail)) |
 | `email.reason_tiers.<kind>` | the tables above | re-tier a reason kind (`hard`, `soft`, `weak`) |
 | `email.trusted_extra_domains` | `GUARDPOST_TRUSTED_EXTRA_DOMAINS` | app-internal domains treated as trusted (Factory: `factory.bot`, `deleted.local`) |
 | `device_repeat.window_days`, `.prior_threshold` | 7, 2 | `device_repeat` |
@@ -156,6 +175,7 @@ A shadow comparison should classify these as `known_divergence`, not as a mismat
 | `referrer-resolution` | v2 resolves the referral code itself (unknown, promo and retracted codes); Guardpost receives `referrer_account_id` and learns of a retraction only through `referral_code_retracted` events. |
 | `blocked-signup-committed` | In commit (shadow) mode Guardpost records an account it would have blocked, because the app created it, and counts it as suspicious on the shared IP counters; v2 writes nothing for a refused signup. Only reachable when the decisions already differ. |
 | `replay-time-bounds` | Guardpost bounds every lookup by `occurred_at`, so a replay sees the ledger as it was; v2 reads the live tables at wall-clock time. Identical for real-time signups. |
+| `ip-reason-detail` | Factory emits `graylisted_ip:<status reason>` and `blacklisted_ip:<status reason>` (a count); Guardpost emits the status only (`graylisted_ip:graylisted`) unless `ip.reason_detail = full` is honoured. Compare these two reasons on the kind. |
 | `dns-cache` | v2 caches MX answers for 6 hours; Guardpost's v2 check asks its resolver every time. |
 
 Also by design: `same_device` and `same_name` name the earlier account by its account id, where
