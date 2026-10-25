@@ -1201,7 +1201,7 @@ export interface components {
         ReasonOut: {
             /**
              * Code
-             * @description Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1
+             * @description Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1, graylisted_ip:graylisted (shared IP reasons name the status only unless ip.reason_detail is 'full')
              */
             code: string;
             /**
@@ -1321,7 +1321,10 @@ export interface components {
             global_ip: boolean;
             /** Ip Override */
             ip_override: ("allow" | "block") | null;
-            /** Ip Reason */
+            /**
+             * Ip Reason
+             * @description The shared reputation's status reason. Null unless the tenant's ip.reason_detail is 'full' and honoured (the reason counts other tenants' signups); a tenant override's own reason is always given
+             */
             ip_reason: string | null;
             /** Ip Status */
             ip_status: string;
@@ -1331,7 +1334,10 @@ export interface components {
             name_key: boolean;
             /** Returning User */
             returning_user: boolean;
-            /** Subnet Reason */
+            /**
+             * Subnet Reason
+             * @description The shared reputation's status reason. Null unless the tenant's ip.reason_detail is 'full' and honoured (the reason counts other tenants' signups)
+             */
             subnet_reason: string | null;
             /** Subnet Status */
             subnet_status: string;

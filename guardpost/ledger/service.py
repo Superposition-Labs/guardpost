@@ -134,6 +134,8 @@ class _Prepared:
     overrides: dict
     referrer_account_id: str | None
     started: float
+    # The tenant's effective ip.reason_detail is "full" (see Guardpost.reason_detail).
+    full_ip_detail: bool = False
 
 
 class LedgerService:
@@ -223,6 +225,7 @@ class LedgerService:
             email_phase=email_phase, overrides=overrides,
             referrer_account_id=req.referral.referrer_account_id if req.referral else None,
             started=started,
+            full_ip_detail=await self.engine.reason_detail(tenant) == "full",
         )
         return await self._tx(lambda conn: self._ledger_phase(conn, prepared))
 
@@ -336,11 +339,19 @@ class LedgerService:
 
         if blocked is None and p.ip:
             ip_status, ip_reason, subnet_status, subnet_reason, override = self._ip_status(view, p)
+            # The shared table's status reasons count every tenant's signups: by default a
+            # response names the status only. A tenant override's reason is the tenant's own.
+            ip_detail = ip_reason
+            if not p.full_ip_detail:
+                subnet_reason = None
+                if override is None:
+                    ip_reason = None
+                    ip_detail = ip_status
             if ip_status == "blacklisted":
-                gate(Reason("blacklisted_ip", ip_reason))
+                gate(Reason("blacklisted_ip", ip_detail))
             else:
                 if ip_status == "graylisted" and not is_suspicious(reasons, p.overrides):
-                    reasons.append(Reason("graylisted_ip", ip_reason))
+                    reasons.append(Reason("graylisted_ip", ip_detail))
                 if ip_status == "clean" and subnet_status != "clean" and not is_suspicious(reasons, p.overrides):
                     reasons.append(Reason("subnet_burst", subnet_key(p.ip)))
 

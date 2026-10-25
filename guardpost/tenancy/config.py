@@ -11,7 +11,7 @@ The device, same-person and referral settings are read by the v2 check
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,6 +39,17 @@ class EmailConfig(_Model):
     @classmethod
     def _normalize_domains(cls, v: list[str] | None) -> list[str] | None:
         return None if v is None else sorted(parse_domain_list(v))
+
+
+class IPConfig(_Model):
+    # How much of the SHARED IP and /24 reputation this tenant's responses show.
+    # "status": graylisted_ip:graylisted, blacklisted_ip:blacklisted, no status
+    # reason (the reasons carry counts that other tenants' signups produced).
+    # "full": the stored reason text, e.g. graylisted_ip:5 suspicious
+    # registrations, as Factory v2 emits it. Honoured only while no other active
+    # tenant that has held an API key shares the instance, or with
+    # GUARDPOST_ALLOW_FULL_REASON_DETAIL=1 (Guardpost.reason_detail).
+    reason_detail: Literal["status", "full"] = "status"
 
 
 class DeviceRepeat(_Model):
@@ -69,6 +80,7 @@ class TenantConfig(_Model):
     region: str | None = Field(default=None, pattern=r"^[a-z]{2,16}$")
     region_rules: RegionRules = Field(default_factory=RegionRules)
     email: EmailConfig = Field(default_factory=EmailConfig)
+    ip: IPConfig = Field(default_factory=IPConfig)
     device_repeat: DeviceRepeat = Field(default_factory=DeviceRepeat)
     same_person: SamePerson = Field(default_factory=SamePerson)
     referral: Referral = Field(default_factory=Referral)

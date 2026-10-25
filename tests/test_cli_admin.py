@@ -65,6 +65,19 @@ def test_migrate_vacuum(gp):
     assert b"left.behind" not in data
 
 
+def test_reason_detail_full_warns_when_not_alone(gp):
+    gp("migrate")
+    gp("tenant", "create", "factory")
+    gp("key", "create", "--tenant", "factory", "--label", "a", "--scopes", "check")
+    out, err = gp("tenant", "config-set", "factory", "ip.reason_detail=full")
+    assert json.loads(out)["config"]["ip"] == {"reason_detail": "full"} and err == ""
+    gp("tenant", "create", "shop")
+    gp("key", "create", "--tenant", "shop", "--label", "b", "--scopes", "check")
+    _, err = gp("tenant", "config-set", "factory", "ip.reason_detail=full")
+    assert "ignored while other tenants are active (shop)" in err
+    gp("tenant", "config-set", "factory", "ip.reason_detail=counts", ok=False)
+
+
 def test_commands_refuse_an_unmigrated_database(gp):
     _, err = gp("tenant", "list", ok=False)
     assert "guardpost migrate" in err

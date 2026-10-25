@@ -274,7 +274,9 @@ class _Out(BaseModel):
 
 
 class ReasonOut(_Out):
-    code: str = Field(description="Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1")
+    code: str = Field(description="Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1, "
+                                  "graylisted_ip:graylisted (shared IP reasons name the status only unless "
+                                  "ip.reason_detail is 'full')")
     kind: str
     tier: Literal["hard", "soft", "weak"]
     evidence: dict | None = Field(default=None, description="Opaque facts: the tenant's own account ids, counts")
@@ -286,13 +288,18 @@ class ReferralOut(_Out):
     reason: str | None = None
 
 
+_SHARED_REASON = ("The shared reputation's status reason. Null unless the tenant's ip.reason_detail is "
+                  "'full' and honoured (the reason counts other tenants' signups); a tenant override's own "
+                  "reason is always given")
+
+
 class SignalsOut(_Out):
     method: str
     returning_user: bool
     ip_status: str
-    ip_reason: str | None
+    ip_reason: str | None = Field(description=_SHARED_REASON)
     subnet_status: str
-    subnet_reason: str | None
+    subnet_reason: str | None = Field(description=_SHARED_REASON.split(";")[0])
     ip_override: Literal["allow", "block"] | None
     global_ip: bool
     fingerprint: bool

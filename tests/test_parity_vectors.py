@@ -137,11 +137,27 @@ def test_ip_status(case):
 # ---------------------------------------------------------------------------
 
 
+# Known divergence ip-reason-detail: by default Guardpost names only the status of the
+# shared reputation; Factory's codes carry its status reason (a count).
+_STATUS_ONLY = {"graylisted_ip": "graylisted", "blacklisted_ip": "blacklisted"}
+
+
+def _expected_code(code: str, detail: str) -> str:
+    kind = code.split(":", 1)[0]
+    if detail == "status" and kind in _STATUS_ONLY:
+        return f"{kind}:{_STATUS_ONLY[kind]}"
+    return code
+
+
+@pytest.mark.parametrize("detail", ["status", "full"])
 @pytest.mark.parametrize("scenario", VECTORS["scenarios"], ids=lambda s: s["name"])
-def test_scenario(scenario, tmp_path, v2_app):
+def test_scenario(scenario, detail, tmp_path, v2_app):
+    """Every scenario twice: the default (status-only IP detail, the documented divergence) and
+    ip.reason_detail=full, honoured for a lone tenant, which reproduces Factory's codes exactly."""
     db = tmp_path / "parity.db"
-    key = provision_tenants(db, {"factory": {}})["factory"]
-    client = v2_app(db=db, dns=scenario.get("dns"))
+    key = provision_tenants(db, {"factory": {"ip": {"reason_detail": detail}}})["factory"]
+    # The legacy tenant is the scenario tenant, as in deploy/: the only active tenant.
+    client = v2_app(db=db, dns=scenario.get("dns"), legacy_tenant="factory")
     headers = {"X-Api-Key": key}
     for n, step in enumerate(scenario["steps"]):
         where = f"{scenario['name']} step {n}"
@@ -167,7 +183,8 @@ def test_scenario(scenario, tmp_path, v2_app):
             assert {k: v for k, v in committed.json().items() if k not in ("committed", "account_id")} == \
                 {k: v for k, v in got.items() if k not in ("committed", "account_id")}
         expect = step["expect"]
-        assert [x["code"] for x in got["reasons"] if x["tier"] != "weak"] == expect["reasons"], (where, got)
+        assert [x["code"] for x in got["reasons"] if x["tier"] != "weak"] == \
+            [_expected_code(c, detail) for c in expect["reasons"]], (where, got)
         assert got["decision"] == expect["decision"], (where, got)
         assert got["block_code"] == expect.get("block_code"), (where, got)
         assert got["actions"] == expect["actions"], (where, got)
@@ -175,6 +192,6 @@ def test_scenario(scenario, tmp_path, v2_app):
         if "suggestion" in expect:
             assert got["suggestion"] == expect["suggestion"], where
         for code, evidence in expect.get("evidence", {}).items():
-            match = [x for x in got["reasons"] if x["code"] == code]
+            match = [x for x in got["reasons"] if x["code"] == _expected_code(code, detail)]
             assert match and match[0]["evidence"] == evidence, (where, got)
         assert "@" not in json.dumps(got), where

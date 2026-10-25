@@ -2171,7 +2171,7 @@
       "ReasonOut": {
         "properties": {
           "code": {
-            "description": "Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1",
+            "description": "Factory's kind:detail form, e.g. subnet_burst:203.0.114.0/24, same_device:acc1, graylisted_ip:graylisted (shared IP reasons name the status only unless ip.reason_detail is 'full')",
             "title": "Code",
             "type": "string"
           },
@@ -2509,6 +2509,7 @@
                 "type": "null"
               }
             ],
+            "description": "The shared reputation's status reason. Null unless the tenant's ip.reason_detail is 'full' and honoured (the reason counts other tenants' signups); a tenant override's own reason is always given",
             "title": "Ip Reason"
           },
           "ip_status": {
@@ -2536,6 +2537,7 @@
                 "type": "null"
               }
             ],
+            "description": "The shared reputation's status reason. Null unless the tenant's ip.reason_detail is 'full' and honoured (the reason counts other tenants' signups)",
             "title": "Subnet Reason"
           },
           "subnet_status": {

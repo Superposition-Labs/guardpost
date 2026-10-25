@@ -213,6 +213,9 @@ DEFAULT_SIGNALS_DAYS = 35
 
 # Tests/dev only: let keyed data use the database-stored generated secret.
 ALLOW_DB_SECRET_ENV = "GUARDPOST_ALLOW_DB_SECRET"
+# Operator override: honour a tenant's ip.reason_detail = "full" even when other
+# tenants share the instance (their signups move the counters it would reveal).
+ALLOW_FULL_REASON_DETAIL_ENV = "GUARDPOST_ALLOW_FULL_REASON_DETAIL"
 
 
 class Guardpost:
@@ -245,6 +248,7 @@ class Guardpost:
         secret: str | None = None,
         dns_resolver: DnsResolver | None = None,
         allow_db_secret: bool | None = None,
+        allow_full_reason_detail: bool | None = None,
         **ip_kwargs,
     ) -> None:
         """
@@ -263,6 +267,9 @@ class Guardpost:
                 generated database-stored secret (else GUARDPOST_ALLOW_DB_SECRET;
                 tests and development only: a secret stored next to the data
                 protects nothing).
+            allow_full_reason_detail: honour ``ip.reason_detail = "full"`` for a
+                tenant that is not alone on the instance (else
+                GUARDPOST_ALLOW_FULL_REASON_DETAIL).
 
         Tenancy: every method that touches tenant data takes ``tenant``. On a
         backend with tenancy (SQLite, memory) bans, stats, timeline and
@@ -293,6 +300,10 @@ class Guardpost:
             os.environ.get(ALLOW_DB_SECRET_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
             if allow_db_secret is None else allow_db_secret
         )
+        self._allow_full_reason_detail = (
+            os.environ.get(ALLOW_FULL_REASON_DETAIL_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+            if allow_full_reason_detail is None else allow_full_reason_detail
+        )
         self._tenant_keys: dict[tuple[str, int], bytes] = {}
         self._hashers: dict[tuple[str, int], TenantHasher] = {}
         # Per-tenant pattern detectors (in memory only; see _detector_for).
@@ -306,6 +317,42 @@ class Guardpost:
     def tenancy(self) -> bool:
         """True when the storage backend keeps per-tenant data."""
         return bool(getattr(self.storage, "supports_tenancy", False))
+
+    async def reason_detail(self, tenant: Tenant | None) -> str:
+        """How much shared IP reputation ``tenant`` may see: "status" or "full".
+
+        The shared table's status reasons ("5 suspicious registrations") count
+        every tenant's signups, so by default a response shows the status only.
+        A tenant's ``ip.reason_detail = "full"`` is honoured while no other
+        active tenant (one that has held an API key) shares the instance, or
+        with GUARDPOST_ALLOW_FULL_REASON_DETAIL.
+        """
+        if tenant is None or tenant.config.ip.reason_detail != "full":
+            return "status"
+        if self._allow_full_reason_detail:
+            return "full"
+        others = await self.other_active_tenants(tenant.id)
+        if not others:
+            return "full"
+        logger.debug("ip.reason_detail=full for tenant %r ignored: tenants %s share the instance",
+                     tenant.id, ", ".join(others))
+        return "status"
+
+    async def other_active_tenants(self, tenant_id: str) -> list[str]:
+        """Active tenants other than ``tenant_id`` that have ever held an API key.
+
+        A tenant that never had a key (the auto-created legacy tenant of an
+        instance that set GUARDPOST_LEGACY_TENANT elsewhere) never sent a signup.
+        """
+        with_keys = {k.tenant_id for k in await self.storage.list_api_keys()}
+        return sorted(t.id for t in await self.storage.list_tenants()
+                      if t.active and t.id != tenant_id and t.id in with_keys)
+
+    async def shows_full_ip_detail_v1(self, tenant: Tenant | None) -> bool:
+        """v1 routes: the legacy tenant keeps 0.2's exact strings; others follow reason_detail."""
+        if not self.tenancy or tenant is None or tenant.id == getattr(self.storage, "legacy_tenant", None):
+            return True
+        return await self.reason_detail(tenant) == "full"
 
     async def initialize(self) -> None:
         """Initialize storage (create tables/indexes)."""

@@ -14,4 +14,4 @@ The rules see only keyed hashes (:class:`SignalKeys`) and ask the ledger
 through small query protocols, so they never touch an email or an IP.
 """
 
-RULESET = "2026.11-1"
+RULESET = "2026.11-2"

@@ -390,6 +390,23 @@ async def _tenant(storage, args, json) -> None:
     tenant.updated_at = utcnow()
     await storage.save_tenant(tenant)
     print(json.dumps(tenant.to_dict(), indent=2))
+    await _warn_reason_detail(storage, tenant)
+
+
+async def _warn_reason_detail(storage, tenant) -> None:
+    """ip.reason_detail=full is honoured only for a lone tenant (or with the operator override)."""
+    import os
+
+    from guardpost.engine import ALLOW_FULL_REASON_DETAIL_ENV
+
+    if tenant.config.ip.reason_detail != "full" or os.environ.get(ALLOW_FULL_REASON_DETAIL_ENV):
+        return
+    with_keys = {k.tenant_id for k in await storage.list_api_keys()}
+    others = [t.id for t in await storage.list_tenants() if t.active and t.id != tenant.id and t.id in with_keys]
+    if others:
+        print(f"warning: ip.reason_detail=full is ignored while other tenants are active ({', '.join(others)}): "
+              f"responses show the IP status only. {ALLOW_FULL_REASON_DETAIL_ENV}=1 overrides this.",
+              file=sys.stderr)
 
 
 async def _key(storage, args) -> None:
