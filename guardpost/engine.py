@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from guardpost.email.banned import BannedEmailEngine
 from guardpost.email.validator import (
     check_registration_suspicion,
+    classify_domain_typo,
     is_b2c_email,
     is_disposable_email,
     is_role_account,
     is_suspicious_email,
     normalize_email,
+    parse_domain_list,
     partition_reasons,
     split_reason,
+    trusted_extra_domains_from_env,
     validate_email_format,
 )
 from guardpost.ip.reputation import IPReputationEngine, subnet_key
@@ -52,6 +56,10 @@ class CheckResult:
     subnet_reason: str | None = None
     is_banned: bool = False
     normalized_email: str = ""
+    # Set when `typo_domain` fired: the domain the user probably meant, and the
+    # rule that matched ("map", "tld" or "numeric"; see classify_domain_typo).
+    suggested_domain: str | None = None
+    typo_source: str | None = None
     # SMTP verification (Phase 2)
     smtp_status: str | None = None
     smtp_catch_all: bool = False
@@ -86,6 +94,8 @@ class CheckResult:
             "subnet_reason": self.subnet_reason,
             "is_banned": self.is_banned,
             "normalized_email": self.normalized_email,
+            "suggested_domain": self.suggested_domain,
+            "typo_source": self.typo_source,
             "smtp_status": self.smtp_status,
             "smtp_catch_all": self.smtp_catch_all,
             "ip_type": self.ip_type,
@@ -126,6 +136,7 @@ def _compute_risk_score(
         "very_short_domain": 10,
         "multiple_aliases": 10,
         "role_account": 5,
+        "role_account_extended": 5,
         "invalid_format": 50,
         # Aug 2026 signals — see guardpost/email/validator.py for the evidence
         # behind each. dot_noise_local scored 71 hits and 0 paying users on the
@@ -193,8 +204,16 @@ class Guardpost:
         ai_scorer: AIScorer | None = None,
         pattern_detector: PatternDetector | None = None,
         enrichment: EmailEnrichment | None = None,
+        trusted_extra_domains: Iterable[str] | str | None = None,
         **ip_kwargs,
     ) -> None:
+        """
+        Args:
+            trusted_extra_domains: deployment-specific domains to trust on top
+                of the shared TRUSTED_EMAIL_DOMAINS (e.g. the Factory's
+                ``factory.bot`` and ``deleted.local``). ``None`` reads
+                GUARDPOST_TRUSTED_EXTRA_DOMAINS from the environment.
+        """
         self.storage: StorageBackend = storage or MemoryStorage()
         self.ip_engine = IPReputationEngine(self.storage, **ip_kwargs)
         self.ban_engine = BannedEmailEngine(self.storage)
@@ -203,6 +222,10 @@ class Guardpost:
         self.ai_scorer = ai_scorer
         self.pattern_detector = pattern_detector
         self.enrichment = enrichment
+        self.trusted_extra_domains: frozenset[str] = (
+            trusted_extra_domains_from_env() if trusted_extra_domains is None
+            else parse_domain_list(trusted_extra_domains)
+        )
         self._last_purge: float = 0.0
         self._purge_interval: float = 3600.0  # purge old registrations every hour
         self._registration_ttl: float = 86400.0  # keep registrations for 24 hours
@@ -253,7 +276,9 @@ class Guardpost:
             CheckResult with risk score, reasons, and status.
         """
         # Email checks (pure, no storage needed)
-        is_suspicious, reasons = await check_registration_suspicion(email)
+        is_suspicious, reasons = await check_registration_suspicion(
+            email, trusted_extra_domains=self.trusted_extra_domains)
+        typo = classify_domain_typo(email) if "typo_domain" in reasons else None
 
         # Banned email check
         is_banned = await self.ban_engine.is_banned(email)
@@ -405,6 +430,8 @@ class Guardpost:
             subnet_reason=subnet_reason,
             is_banned=is_banned,
             normalized_email=normalize_email(email),
+            suggested_domain=typo[0] if typo else None,
+            typo_source=typo[1] if typo else None,
             smtp_status=smtp_status,
             smtp_catch_all=smtp_catch_all,
             ip_type=ip_type,
@@ -434,9 +461,8 @@ class Guardpost:
     def is_disposable(email: str) -> bool:
         return is_disposable_email(email)
 
-    @staticmethod
-    async def is_suspicious(email: str) -> tuple[bool, list[str]]:
-        return await is_suspicious_email(email)
+    async def is_suspicious(self, email: str) -> tuple[bool, list[str]]:
+        return await is_suspicious_email(email, trusted_extra_domains=self.trusted_extra_domains)
 
     @staticmethod
     def is_role_account(email: str) -> bool:

@@ -84,7 +84,8 @@ class TestWeakSignalVerdict:
         assert set(result.weak_reasons) <= set(result.reasons)
 
     async def test_hard_reason_still_condemns(self, gp):
-        result = await gp.check("test@mailinator.com")
+        # Not "test@": that is an extended role prefix, itself a weak reason.
+        result = await gp.check("someone@mailinator.com")
         assert result.is_suspicious is True
         assert result.weak_reasons == []
 
@@ -125,3 +126,38 @@ class TestSubnetBurstReason:
         assert result.subnet_status == "clean"
         assert result.reasons == []
         assert result.is_suspicious is False
+
+
+@pytest.mark.asyncio
+class TestTrustedExtraAndTypoSource:
+    async def test_engine_trusts_configured_extras(self):
+        from guardpost.email.validator import _mx_host_cache, clear_caches
+
+        clear_caches()
+        _mx_host_cache["factory.bot"] = None
+        try:
+            plain = Guardpost(storage=MemoryStorage(), trusted_extra_domains=())
+            factory = Guardpost(storage=MemoryStorage(), trusted_extra_domains="factory.bot,deleted.local")
+            assert "no_mx_records" in (await plain.check("telegram_1@factory.bot")).reasons
+            result = await factory.check("telegram_1@factory.bot")
+            assert result.reasons == []
+            assert result.is_suspicious is False
+            assert (await factory.is_suspicious("telegram_1@factory.bot")) == (False, [])
+        finally:
+            clear_caches()
+
+    async def test_engine_reads_env_by_default(self, monkeypatch):
+        monkeypatch.setenv("GUARDPOST_TRUSTED_EXTRA_DOMAINS", "factory.bot")
+        assert Guardpost(storage=MemoryStorage()).trusted_extra_domains == {"factory.bot"}
+
+    async def test_typo_source_in_result(self, gp):
+        result = await gp.check("x@googlemail.con")
+        assert "typo_domain" in result.reasons
+        assert result.suggested_domain == "googlemail.com"
+        assert result.typo_source == "tld"
+        assert result.to_dict()["typo_source"] == "tld"
+
+    async def test_no_typo_fields_on_a_clean_address(self, gp):
+        result = await gp.check("realuser@gmail.com")
+        assert result.suggested_domain is None
+        assert result.typo_source is None

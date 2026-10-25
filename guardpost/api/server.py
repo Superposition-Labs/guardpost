@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
+from guardpost.email.validator import classify_domain_typo
 from guardpost.engine import Guardpost
 from guardpost.storage.sqlite import SQLiteStorage
 
@@ -171,6 +172,9 @@ class CheckResponse(BaseModel):
     subnet_reason: str | None = None
     is_banned: bool
     normalized_email: str
+    # Set when typo_domain fired. typo_source: "map" | "tld" | "numeric".
+    suggested_domain: str | None = None
+    typo_source: str | None = None
     smtp_status: str | None = None
     smtp_catch_all: bool = False
     ip_type: str | None = None
@@ -202,6 +206,8 @@ class EmailValidateResponse(BaseModel):
     is_b2c: bool
     is_suspicious: bool
     reasons: list[str]
+    suggested_domain: str | None = None
+    typo_source: str | None = None
 
 
 class SMTPVerifyRequest(BaseModel):
@@ -369,6 +375,7 @@ def create_app(
     rate_limit: int = 0,
     maxmind_db_path: str | None = None,
     enable_metrics: bool = False,
+    trusted_extra_domains: list[str] | str | None = None,
 ) -> FastAPI:
     """Create the FastAPI application."""
 
@@ -450,7 +457,11 @@ def create_app(
             ai_scorer=ai_scorer,
             pattern_detector=pattern_detector,
             enrichment=enrichment,
+            # None -> GUARDPOST_TRUSTED_EXTRA_DOMAINS
+            trusted_extra_domains=trusted_extra_domains,
         )
+        if _engine.trusted_extra_domains:
+            logger.info("Extra trusted domains: %s", ", ".join(sorted(_engine.trusted_extra_domains)))
         await _engine.initialize()
 
         _api_key = api_key or os.environ.get("GUARDPOST_API_KEY")
@@ -647,6 +658,7 @@ def create_app(
         is_b2c = engine.is_b2c(req.email)
         is_suspicious, reasons = await engine.is_suspicious(req.email)
         normalized = engine.normalize_email(req.email)
+        typo = classify_domain_typo(req.email) if "typo_domain" in reasons else None
 
         return EmailValidateResponse(
             email=req.email,
@@ -658,6 +670,8 @@ def create_app(
             is_b2c=is_b2c,
             is_suspicious=is_suspicious,
             reasons=reasons,
+            suggested_domain=typo[0] if typo else None,
+            typo_source=typo[1] if typo else None,
         )
 
     @app.post(

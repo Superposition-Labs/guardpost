@@ -108,7 +108,7 @@ Redis configuration is passed via `GUARDPOST_REDIS_URL` environment variable (e.
 | Heuristic patterns   | Numeric domains (≥4 digits), short domains (≤2 chars) | test@1234abc.com                |
 | DNS MX validation    | Domains with no mail server                           | test@doesnotexist.xyz           |
 | MX infrastructure    | Fresh domains using disposable mail backends          | Domains pointing to mail.tm     |
-| Role accounts        | Functional addresses (200 prefixes)                   | info@, admin@, postmaster@      |
+| Role accounts        | 43 core prefixes (`role_account`) + 157 extended (`role_account_extended`, weak) | info@, admin@ / dev@, hello@ |
 | IP reputation        | IPs with excessive registrations                      | 5+ suspicious → graylist        |
 | Banned emails        | Permanently banned (SHA-256 hash match)               | Exact match after normalization |
 
@@ -162,6 +162,7 @@ gp = Guardpost(
 | `IPINFO_TOKEN`                     | IPinfo.io token for proxy detection    |
 | `GUARDPOST_MAXMIND_DB`             | Path to MaxMind GeoLite2 ASN .mmdb     |
 | `HIBP_API_KEY`                     | Have I Been Pwned API key              |
+| `GUARDPOST_TRUSTED_EXTRA_DOMAINS`  | Comma-separated deployment-specific domains to trust (e.g. `factory.bot,deleted.local`), on top of the shared trusted list |
 
 ### Storage Backends
 

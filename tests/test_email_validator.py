@@ -1,10 +1,13 @@
 """Tests for email validation engine."""
 
 from guardpost.email.validator import (
+    EMAIL_DOMAIN_TYPO_MAP,
+    TRUSTED_EMAIL_DOMAINS,
     _mx_host_cache,
     check_domain_has_mx,
     check_domain_has_null_mx,
     check_registration_suspicion,
+    classify_domain_typo,
     clear_caches,
     get_email_domain,
     has_dot_noise,
@@ -15,8 +18,11 @@ from guardpost.email.validator import (
     is_role_account,
     is_suspicious_email,
     normalize_email,
+    parse_domain_list,
     partition_reasons,
+    role_account_reason,
     suggest_domain_correction,
+    trusted_extra_domains_from_env,
     validate_email_format,
 )
 
@@ -448,3 +454,96 @@ class TestTypoTLDNarrowness:
     def test_real_country_tlds_left_alone(self):
         for domain in ("bank.om", "shop.cm", "omantel.om", "camtel.cm"):
             assert suggest_domain_correction(f"x@{domain}") is None, domain
+
+
+class TestRoleAccountTiers:
+    """The Factory's 43 prefixes give role_account; the rest are extended."""
+
+    def test_core_prefix(self):
+        assert role_account_reason("info@example.com") == "role_account"
+        assert role_account_reason("Support@Example.com") == "role_account"
+
+    def test_extended_prefix(self):
+        assert role_account_reason("dev@example.com") == "role_account_extended"
+        assert role_account_reason("hello@example.com") == "role_account_extended"
+
+    def test_not_a_role(self):
+        assert role_account_reason("ivan.petrov@example.com") is None
+        assert role_account_reason("") is None
+
+    def test_is_role_account_still_covers_both_tiers(self):
+        assert is_role_account("dev@example.com") is True
+        assert is_role_account("info@example.com") is True
+
+    async def test_extended_prefix_is_weak(self):
+        is_susp, reasons = await check_registration_suspicion("hello@gmail.com")
+        assert reasons == ["role_account_extended"]
+        assert is_susp is False
+
+    async def test_core_prefix_still_flags(self):
+        is_susp, reasons = await check_registration_suspicion("admin@gmail.com")
+        assert reasons == ["role_account"]
+        assert is_susp is True
+
+
+class TestTypoSource:
+    def test_map(self):
+        assert classify_domain_typo("x@gnail.com") == ("gmail.com", "map")
+
+    def test_tld(self):
+        # Not in the map, so only the TLD rule can match it.
+        assert "googlemail.con" not in EMAIL_DOMAIN_TYPO_MAP
+        assert classify_domain_typo("x@googlemail.con") == ("googlemail.com", "tld")
+        assert classify_domain_typo("inbox.ry") == ("inbox.ru", "tld")
+
+    def test_numeric(self):
+        assert classify_domain_typo("x@501gmail.com") == ("gmail.com", "numeric")
+
+    def test_no_match(self):
+        assert classify_domain_typo("x@gmail.com") is None
+        assert classify_domain_typo("") is None
+
+    def test_suggest_domain_correction_unchanged(self):
+        assert suggest_domain_correction("x@googlemail.con") == "googlemail.com"
+
+
+class TestTrustedExtraDomains:
+    def setup_method(self):
+        clear_caches()
+
+    def teardown_method(self):
+        clear_caches()
+
+    def test_factory_domains_are_not_shared_trust(self):
+        assert "factory.bot" not in TRUSTED_EMAIL_DOMAINS
+        assert "deleted.local" not in TRUSTED_EMAIL_DOMAINS
+
+    async def test_untrusted_by_default(self):
+        _mx_host_cache["factory.bot"] = None  # does not resolve
+        is_susp, reasons = await is_suspicious_email("telegram_1@factory.bot")
+        assert "no_mx_records" in reasons
+        assert is_susp is True
+
+    async def test_extra_trust_skips_dns(self):
+        _mx_host_cache["factory.bot"] = None
+        is_susp, reasons = await is_suspicious_email(
+            "telegram_1@factory.bot", trusted_extra_domains={"factory.bot"})
+        assert reasons == []
+        assert is_susp is False
+
+    async def test_extra_trust_does_not_hide_a_disposable_domain(self):
+        is_susp, reasons = await is_suspicious_email(
+            "x@mailinator.com", trusted_extra_domains={"mailinator.com"})
+        assert "disposable_domain" in reasons
+        assert is_susp is True
+
+    def test_parse_domain_list(self):
+        assert parse_domain_list(" Factory.bot, ,@deleted.local ") == {"factory.bot", "deleted.local"}
+        assert parse_domain_list(None) == frozenset()
+        assert parse_domain_list(["A.example"]) == {"a.example"}
+
+    def test_env(self, monkeypatch):
+        monkeypatch.setenv("GUARDPOST_TRUSTED_EXTRA_DOMAINS", "factory.bot,deleted.local")
+        assert trusted_extra_domains_from_env() == {"factory.bot", "deleted.local"}
+        monkeypatch.delenv("GUARDPOST_TRUSTED_EXTRA_DOMAINS")
+        assert trusted_extra_domains_from_env() == frozenset()
