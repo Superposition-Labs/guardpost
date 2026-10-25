@@ -62,6 +62,18 @@ jobs:
       - name: npm pack --dry-run
         run: npm run check:pack
 
+  deploy-smoke:
+    # deploy/compose.yml end to end on this commit's image: first boot with the CLI, v1 and v2
+    # calls, nothing published, metrics off the API port, the nightly snapshot, Litestream to an
+    # S3 mock and the restore drill.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scripts/smoke.sh
+        env:
+          SMOKE_LITESTREAM: "1"
+        run: scripts/smoke.sh
+
   test:
     runs-on: ubuntu-latest
     strategy:

@@ -1,0 +1,8 @@
+# Optional: the API on the host's loopback only, for the dashboard through an SSH tunnel:
+#   ssh -L 8200:127.0.0.1:8200 <host>    then http://127.0.0.1:8200/dashboard
+# Enable with COMPOSE_FILE=compose.yml:compose.dashboard.yml in /opt/guardpost/.env (or -f twice).
+# Never bind it to 0.0.0.0: the metrics port is never published at all.
+services:
+  guardpost:
+    ports:
+      - "127.0.0.1:${GUARDPOST_LOCAL_PORT:-8200}:8000"
