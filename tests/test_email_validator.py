@@ -2,7 +2,9 @@
 
 from guardpost.email.validator import (
     EMAIL_DOMAIN_TYPO_MAP,
+    HARD_REASONS,
     TRUSTED_EMAIL_DOMAINS,
+    ReasonTier,
     _mx_host_cache,
     check_domain_has_mx,
     check_domain_has_null_mx,
@@ -13,6 +15,7 @@ from guardpost.email.validator import (
     has_dot_noise,
     has_gibberish_domain,
     has_hard_reason,
+    has_suspicious_reason,
     is_disposable_email,
     is_homograph_domain,
     is_role_account,
@@ -20,6 +23,7 @@ from guardpost.email.validator import (
     normalize_email,
     parse_domain_list,
     partition_reasons,
+    reason_tier,
     role_account_reason,
     suggest_domain_correction,
     trusted_extra_domains_from_env,
@@ -371,9 +375,10 @@ class TestWeakSignalTier:
         assert has_hard_reason(["subnet_burst:1.2.3.0/24"]) is True
 
     def test_partition_preserves_order(self):
-        hard, weak = partition_reasons(
+        hard, soft, weak = partition_reasons(
             ["disposable_domain", "gibberish_domain", "no_mx_records", "relay_domain"])
-        assert hard == ["disposable_domain", "no_mx_records"]
+        assert hard == []
+        assert soft == ["disposable_domain", "no_mx_records"]
         assert weak == ["gibberish_domain", "relay_domain"]
 
     async def test_relay_domain_is_not_suspicious(self):
@@ -424,18 +429,20 @@ class TestNullMX:
     async def test_reason_reported(self):
         _mx_host_cache["nullmx.example"] = ""
         is_susp, reasons = await is_suspicious_email("user@nullmx.example")
-        assert is_susp is True
         assert "null_mx" in reasons
         assert "no_mx_records" not in reasons
+        # Weak: the Factory's MX test accepts a null MX, so Guardpost scores
+        # it but does not call the address suspicious on that alone.
+        assert is_susp is False
 
     async def test_weak_signal_does_not_suppress_the_dns_layers(self):
         # ygwpr.com is gibberish (weak). If the DNS block were guarded on
         # `reasons` rather than on hard reasons, that weak signal alone would
         # skip the MX checks entirely.
-        _mx_host_cache["ygwpq.example"] = ""
+        _mx_host_cache["ygwpq.example"] = None
         is_susp, reasons = await is_suspicious_email("user@ygwpq.example")
         assert "gibberish_domain" in reasons
-        assert "null_mx" in reasons
+        assert "no_mx_records" in reasons
         assert is_susp is True
 
 
@@ -547,3 +554,41 @@ class TestTrustedExtraDomains:
         assert trusted_extra_domains_from_env() == {"factory.bot", "deleted.local"}
         monkeypatch.delenv("GUARDPOST_TRUSTED_EXTRA_DOMAINS")
         assert trusted_extra_domains_from_env() == frozenset()
+
+
+class TestReasonTiers:
+    def test_defaults_reproduce_factory_semantics(self):
+        assert HARD_REASONS == frozenset()
+        for kind in ("gibberish_domain", "relay_domain", "role_account_extended", "homograph_domain", "null_mx"):
+            assert reason_tier(kind) is ReasonTier.WEAK, kind
+        for kind in ("disposable_domain", "disposable_mx_infrastructure", "no_mx_records", "typo_domain",
+                     "dot_noise_local", "role_account", "suspicious_domain_keyword", "invalid_format",
+                     "multiple_aliases", "numeric_domain", "very_short_domain", "subnet_burst"):
+            assert reason_tier(kind) is ReasonTier.SOFT, kind
+
+    def test_detail_suffix_and_unknown_reasons(self):
+        assert reason_tier("subnet_burst:1.2.3.0/24") is ReasonTier.SOFT
+        assert reason_tier("datacenter_range:AWS") is ReasonTier.SOFT
+        assert reason_tier("some_future_signal") is ReasonTier.SOFT
+
+    def test_overrides(self):
+        tiers = {"typo_domain": "hard", "subnet_burst": ReasonTier.WEAK}
+        hard, soft, weak = partition_reasons(
+            ["typo_domain", "subnet_burst:1.2.3.0/24", "disposable_domain"], tiers)
+        assert hard == ["typo_domain"]
+        assert soft == ["disposable_domain"]
+        assert weak == ["subnet_burst:1.2.3.0/24"]
+
+    def test_every_reason_lands_in_exactly_one_tier(self):
+        reasons = ["role_account", "null_mx", "subnet_burst:1.2.3.0/24", "relay_domain"]
+        hard, soft, weak = partition_reasons(reasons)
+        assert sorted(hard + soft + weak) == sorted(reasons)
+
+    def test_has_suspicious_reason(self):
+        assert has_suspicious_reason(["gibberish_domain", "null_mx"]) is False
+        assert has_suspicious_reason(["gibberish_domain", "role_account"]) is True
+        assert has_suspicious_reason(["typo_domain"], {"typo_domain": "weak"}) is False
+
+    def test_tier_values_are_strings(self):
+        assert ReasonTier("hard") is ReasonTier.HARD
+        assert ReasonTier.SOFT == "soft"

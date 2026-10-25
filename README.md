@@ -112,6 +112,21 @@ Redis configuration is passed via `GUARDPOST_REDIS_URL` environment variable (e.
 | IP reputation        | IPs with excessive registrations                      | 5+ suspicious → graylist        |
 | Banned emails        | Permanently banned (SHA-256 hash match)               | Exact match after normalization |
 
+### Reason tiers
+
+Every reason in a `/api/v1/check` result is also listed in exactly one tier:
+
+| Tier   | Field          | Effect                                    | Default members |
+| ------ | -------------- | ----------------------------------------- | --------------- |
+| `hard` | `hard_reasons` | block                                     | none yet |
+| `soft` | `soft_reasons` | degrade: allow, deny bonuses              | everything not listed elsewhere, incl. `subnet_burst` |
+| `weak` | `weak_reasons` | raise `risk_score` only                   | `gibberish_domain`, `relay_domain`, `role_account_extended`, `homograph_domain`, `null_mx` |
+
+`is_suspicious` is `hard_reasons or soft_reasons` (or a banned email / bad IP),
+so it means what it meant before tiers existed. Overrides per reason kind:
+`Guardpost(reason_tiers={"typo_domain": "hard"})`. A `typo_domain` result also
+carries `suggested_domain` and `typo_source` (`map`, `tld` or `numeric`).
+
 ## API Endpoints
 
 | Method   | Path                      | Description                          |

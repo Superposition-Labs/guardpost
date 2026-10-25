@@ -130,3 +130,17 @@ def test_cli_serve_passes_proxy_and_metrics_options(monkeypatch):
     assert seen["app_kwargs"]["metrics_host"] == "0.0.0.0"
     # uvicorn must not rewrite the peer from X-Forwarded-For behind our back.
     assert seen["run_kwargs"]["proxy_headers"] is False
+
+
+def test_v1_check_returns_tiered_reasons(make_client):
+    client = make_client()
+    body = client.post("/api/v1/check", json={"email": "hello@duck.com", "record_ip": False}).json()
+    assert body["reasons"] == ["relay_domain", "role_account_extended"]
+    assert body["weak_reasons"] == ["relay_domain", "role_account_extended"]
+    assert body["soft_reasons"] == []
+    assert body["hard_reasons"] == []
+    assert body["is_suspicious"] is False
+
+    body = client.post("/api/v1/check", json={"email": "someone@sharklasers.com", "record_ip": False}).json()
+    assert body["soft_reasons"] == ["disposable_domain"]
+    assert body["is_suspicious"] is True

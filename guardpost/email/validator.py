@@ -15,8 +15,10 @@ import asyncio
 import logging
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 import dns.resolver
 
@@ -805,27 +807,53 @@ def is_relay_email(email: str) -> bool:
 
 
 # === Reason tiers ===
-# A HARD reason is enough on its own to call an address suspicious. A WEAK
-# reason raises the risk score but never condemns, which is what lets fuzzy
-# rules ship at all: gibberish_domain matches ygwpr.com and dbwot.com, but it
-# also matches rudn.ru and kpfu.ru, and no rule that can zero a real student's
-# welcome credits belongs in the hard tier.
+# Every reason belongs to one of three tiers; a check's decision is the highest
+# tier present:
+#   HARD -> block   (refuse the signup outright)
+#   SOFT -> degrade (allow it, deny bonuses: the Factory's "suspicious")
+#   WEAK -> score   (raise risk_score only, never change the verdict)
 #
-# Every reason string that is NOT listed here is hard by default, so forgetting
-# to classify a new signal fails safe (it flags) rather than silently vanishing.
+# The defaults reproduce the Factory's semantics exactly:
+#   - HARD is empty. Guardpost has no block-class reasons yet; the Factory's
+#     blocking gates arrive with per-tenant tiers. So `is_suspicious` (hard or
+#     soft) still covers everything it covered before tiers existed.
+#   - WEAK holds the signals the Factory does not flag. gibberish_domain matches
+#     ygwpr.com and dbwot.com, but it also matches rudn.ru and kpfu.ru, and no
+#     rule that can zero a real student's welcome credits belongs above WEAK.
+#   - Everything else is SOFT, including subnet_burst (degrade-only, never a
+#     block) and any reason not listed here — forgetting to classify a new
+#     signal fails safe (it degrades) rather than silently vanishing.
+
+
+class ReasonTier(str, Enum):
+    HARD = "hard"
+    SOFT = "soft"
+    WEAK = "weak"
+
+
+HARD_REASONS: frozenset[str] = frozenset()
+
 WEAK_REASONS = frozenset(
     [
         "gibberish_domain",
         "relay_domain",
         # dev@, design@, hello@ ... — the Factory does not flag these.
         "role_account_extended",
+        # Guardpost-only: the Factory's MX test accepts a null MX ("." is an
+        # answer) and has no homograph check.
+        "homograph_domain",
+        "null_mx",
     ]
 )
 
+DEFAULT_REASON_TIER = ReasonTier.SOFT
 
-def has_hard_reason(reasons: list[str]) -> bool:
-    """Return True if any reason is strong enough to condemn the address."""
-    return any(split_reason(r) not in WEAK_REASONS for r in reasons)
+DEFAULT_REASON_TIERS: Mapping[str, ReasonTier] = MappingProxyType({
+    **{r: ReasonTier.HARD for r in HARD_REASONS},
+    **{r: ReasonTier.WEAK for r in WEAK_REASONS},
+})
+
+ReasonTiers = Mapping[str, "ReasonTier | str"]
 
 
 def split_reason(reason: str) -> str:
@@ -833,11 +861,37 @@ def split_reason(reason: str) -> str:
     return reason.split(":", 1)[0]
 
 
-def partition_reasons(reasons: list[str]) -> tuple[list[str], list[str]]:
-    """Split reasons into (hard, weak), preserving order within each tier."""
-    hard = [r for r in reasons if split_reason(r) not in WEAK_REASONS]
-    weak = [r for r in reasons if split_reason(r) in WEAK_REASONS]
-    return hard, weak
+def reason_tier(reason: str, tiers: ReasonTiers | None = None) -> ReasonTier:
+    """Tier of one reason. ``tiers`` overrides the defaults per reason kind."""
+    kind = split_reason(reason)
+    if tiers and kind in tiers:
+        return ReasonTier(tiers[kind])
+    return DEFAULT_REASON_TIERS.get(kind, DEFAULT_REASON_TIER)
+
+
+def partition_reasons(
+    reasons: list[str], tiers: ReasonTiers | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """Split reasons into (hard, soft, weak), preserving order within each tier."""
+    out: dict[ReasonTier, list[str]] = {t: [] for t in ReasonTier}
+    for r in reasons:
+        out[reason_tier(r, tiers)].append(r)
+    return out[ReasonTier.HARD], out[ReasonTier.SOFT], out[ReasonTier.WEAK]
+
+
+def has_suspicious_reason(reasons: list[str], tiers: ReasonTiers | None = None) -> bool:
+    """True if any reason is hard or soft, i.e. the address is suspicious."""
+    return any(reason_tier(r, tiers) is not ReasonTier.WEAK for r in reasons)
+
+
+def has_hard_reason(reasons: list[str]) -> bool:
+    """Pre-tier name for has_suspicious_reason(): any reason that is not weak.
+
+    Kept for callers written when there were only two tiers ("hard" then meant
+    "condemns"). It is true for soft reasons too; for the block tier use
+    ``partition_reasons(reasons)[0]``.
+    """
+    return has_suspicious_reason(reasons)
 
 
 # === LAYER 5: DNS MX record cache ===
@@ -1365,7 +1419,7 @@ async def is_suspicious_email(
     domain = get_email_domain(email)
     if domain:
         if domain in TRUSTED_EMAIL_DOMAINS or domain in trusted_extra_domains:
-            return has_hard_reason(reasons), reasons
+            return has_suspicious_reason(reasons), reasons
 
         # Lookalikes have live catch-all MX as often as not, so the DNS layers
         # below cannot be relied on to catch them.
@@ -1394,10 +1448,10 @@ async def is_suspicious_email(
                 reasons.append("suspicious_domain_keyword")
                 break
 
-        # Only a HARD reason short-circuits the DNS layers. Guarding on
-        # `reasons` instead would let a weak signal such as gibberish_domain
+        # Only a hard or soft reason short-circuits the DNS layers. Guarding
+        # on `reasons` instead would let a weak signal such as gibberish_domain
         # silently suppress the MX checks that do the real work.
-        if not has_hard_reason(reasons):
+        if not has_suspicious_reason(reasons):
             if await check_domain_has_null_mx(domain):
                 reasons.append("null_mx")
             elif not await check_domain_has_mx(domain):
@@ -1405,7 +1459,7 @@ async def is_suspicious_email(
             elif await check_mx_points_to_disposable(domain):
                 reasons.append("disposable_mx_infrastructure")
 
-    return has_hard_reason(reasons), reasons
+    return has_suspicious_reason(reasons), reasons
 
 
 async def check_registration_suspicion(
@@ -1455,7 +1509,7 @@ async def check_registration_suspicion(
     # if _is_gibberish_username(clean_local):
     #     reasons.append("gibberish_username")
 
-    is_suspicious = has_hard_reason(reasons)
+    is_suspicious = has_suspicious_reason(reasons)
     if is_suspicious:
         domain = get_email_domain(email)
         logger.info(

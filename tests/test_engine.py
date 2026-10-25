@@ -161,3 +161,68 @@ class TestTrustedExtraAndTypoSource:
         result = await gp.check("realuser@gmail.com")
         assert result.suggested_domain is None
         assert result.typo_source is None
+
+
+@pytest.mark.asyncio
+class TestThreeTierResult:
+    async def test_soft_reasons_make_it_suspicious(self, gp):
+        result = await gp.check("someone@sharklasers.com")
+        assert result.soft_reasons == ["disposable_domain"]
+        assert result.hard_reasons == []
+        assert result.is_suspicious is True
+
+    async def test_weak_only_is_not_suspicious(self, gp):
+        result = await gp.check("hello@duck.com")
+        assert result.weak_reasons == ["relay_domain", "role_account_extended"]
+        assert result.soft_reasons == [] and result.hard_reasons == []
+        assert result.is_suspicious is False
+        assert result.risk_score > 0
+
+    async def test_tiers_partition_reasons(self, gp):
+        result = await gp.check("admin@duck.com")
+        assert sorted(result.hard_reasons + result.soft_reasons + result.weak_reasons) == sorted(result.reasons)
+
+    async def test_serialized_fields(self, gp):
+        payload = (await gp.check("someone@sharklasers.com")).to_dict()
+        assert payload["soft_reasons"] == ["disposable_domain"]
+        assert payload["hard_reasons"] == []
+        assert payload["weak_reasons"] == []
+
+    async def test_engine_tier_override(self):
+        engine = Guardpost(storage=MemoryStorage(), reason_tiers={"disposable_domain": "hard", "role_account": "weak"})
+        result = await engine.check("someone@sharklasers.com")
+        assert result.hard_reasons == ["disposable_domain"]
+        assert result.is_suspicious is True
+        result = await engine.check("admin@gmail.com")
+        assert result.weak_reasons == ["role_account"]
+        assert result.is_suspicious is False
+
+    async def test_invalid_tier_override_rejected(self):
+        with pytest.raises(ValueError):
+            Guardpost(storage=MemoryStorage(), reason_tiers={"typo_domain": "block"})
+
+
+class TestSubnetBurstScoredOnce:
+    def test_reason_without_double_count(self):
+        from guardpost.engine import _compute_risk_score
+
+        # subnet_burst's own weight (20), not 20 + the graylisted bonus (10).
+        assert _compute_risk_score(["subnet_burst:1.2.3.0/24"], "clean", False, "graylisted") == 20
+        assert _compute_risk_score(["subnet_burst:1.2.3.0/24"], "clean", False, "blacklisted") == 20
+
+    def test_status_bonus_kept_when_reason_absent(self):
+        from guardpost.engine import _compute_risk_score
+
+        # A dirty /24 behind a dirty IP adds no subnet_burst reason, so the
+        # status bonus is the only place the /24 is counted.
+        assert _compute_risk_score([], "graylisted", False, "graylisted") == 15 + 10
+        assert _compute_risk_score([], "clean", False, "blacklisted") == 20
+
+    @pytest.mark.asyncio
+    async def test_end_to_end(self, gp):
+        for host in range(70, 78):
+            await gp.check("someone@sharklasers.com", ip_address=f"185.193.158.{host}")
+        result = await gp.check("realuser@gmail.com", ip_address="185.193.158.90")
+        assert result.soft_reasons == ["subnet_burst:185.193.158.0/24"]
+        assert result.is_suspicious is True
+        assert result.risk_score == 20
