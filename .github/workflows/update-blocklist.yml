@@ -1,5 +1,12 @@
 name: Update Disposable Email Blocklist
 
+# Requires the repository setting "Allow GitHub Actions to create and approve
+# pull requests" (Settings -> Actions -> General -> Workflow permissions).
+# Without it peter-evans/create-pull-request fails with GITHUB_TOKEN.
+#
+# A pull request opened with GITHUB_TOKEN does not trigger other workflows, so
+# after opening or updating the PR this job dispatches CI on the branch itself.
+
 on:
   schedule:
     - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
@@ -8,45 +15,75 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write # gh workflow run ci.yml
+
+concurrency:
+  group: update-blocklist
+  cancel-in-progress: false
 
 jobs:
   update-blocklist:
     runs-on: ubuntu-latest
+    env:
+      BLOCKLIST: guardpost/data/disposable_email_blocklist.conf
+      BRANCH: auto/update-blocklist
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install guardpost
+        run: pip install -e .
+
       - name: Download latest blocklist
         run: |
-          curl -fsSL \
+          cp "$BLOCKLIST" "$RUNNER_TEMP/current.conf"
+          curl -fsSL --retry 3 \
             https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf \
-            -o guardpost/data/disposable_email_blocklist.conf
+            -o "$BLOCKLIST"
 
       - name: Check for changes
         id: diff
         run: |
-          if git diff --quiet guardpost/data/disposable_email_blocklist.conf; then
+          if git diff --quiet "$BLOCKLIST"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            ADDED=$(git diff --numstat guardpost/data/disposable_email_blocklist.conf | awk '{print $1}')
-            REMOVED=$(git diff --numstat guardpost/data/disposable_email_blocklist.conf | awk '{print $2}')
-            TOTAL=$(wc -l < guardpost/data/disposable_email_blocklist.conf | tr -d ' ')
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "added=$ADDED" >> "$GITHUB_OUTPUT"
-            echo "removed=$REMOVED" >> "$GITHUB_OUTPUT"
-            echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
           fi
 
+      # Fails the job (so no PR is opened) if the download is empty, not a
+      # domain list, more than 1% shorter than the current list, or would
+      # un-flag a domain in CUSTOM_DISPOSABLE_DOMAINS.
+      - name: Guard against a truncated or emptied list
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          python scripts/check_blocklist.py "$RUNNER_TEMP/current.conf" "$BLOCKLIST" \
+            --max-shrink 0.01 --summary "$RUNNER_TEMP/summary.md"
+          {
+            echo "Automated update from [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains)."
+            echo
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "CI is dispatched on \`$BRANCH\` by the workflow that opened this PR (PRs opened with GITHUB_TOKEN do not trigger CI)."
+          } > "$RUNNER_TEMP/pr-body.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Create Pull Request
+        id: cpr
         if: steps.diff.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           commit-message: "chore: update disposable email blocklist"
-          branch: auto/update-blocklist
+          branch: ${{ env.BRANCH }}
           title: "chore: update disposable email blocklist"
-          body: |
-            Automated update from [disposable-email-domains](https://github.com/disposable-email-domains/disposable-email-domains).
-
-            - **Added:** ${{ steps.diff.outputs.added }} domains
-            - **Removed:** ${{ steps.diff.outputs.removed }} domains
-            - **Total:** ${{ steps.diff.outputs.total }} domains
+          body-path: ${{ runner.temp }}/pr-body.md
+          add-paths: ${{ env.BLOCKLIST }}
           labels: dependencies
+
+      - name: Dispatch CI on the PR branch
+        if: steps.cpr.outputs.pull-request-operation == 'created' || steps.cpr.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

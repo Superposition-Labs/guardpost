@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from guardpost.email.banned import BannedEmailEngine
 from guardpost.email.validator import (
+    ReasonTier,
     check_registration_suspicion,
+    classify_domain_typo,
     is_b2c_email,
     is_disposable_email,
     is_role_account,
     is_suspicious_email,
     normalize_email,
+    parse_domain_list,
     partition_reasons,
     split_reason,
+    trusted_extra_domains_from_env,
     validate_email_format,
 )
 from guardpost.ip.reputation import IPReputationEngine, subnet_key
@@ -42,16 +47,23 @@ class CheckResult:
     is_suspicious: bool
     risk_score: int  # 0–100
     reasons: list[str] = field(default_factory=list)
-    # Subset of `reasons` that only raised the score. `is_suspicious` is False
-    # when every reason is weak, so a caller that acts on the verdict alone will
-    # never punish an address on a fuzzy signal.
+    # `reasons` split by tier (see ReasonTier). Every reason is in exactly one
+    # of the three lists. `is_suspicious` is hard OR soft, so a caller that
+    # acts on the verdict alone never punishes an address on a weak signal.
+    #   hard -> block (empty by default), soft -> degrade, weak -> score only.
     weak_reasons: list[str] = field(default_factory=list)
+    soft_reasons: list[str] = field(default_factory=list)
+    hard_reasons: list[str] = field(default_factory=list)
     ip_status: str = "clean"
     ip_reason: str | None = None
     subnet_status: str = "clean"
     subnet_reason: str | None = None
     is_banned: bool = False
     normalized_email: str = ""
+    # Set when `typo_domain` fired: the domain the user probably meant, and the
+    # rule that matched ("map", "tld" or "numeric"; see classify_domain_typo).
+    suggested_domain: str | None = None
+    typo_source: str | None = None
     # SMTP verification (Phase 2)
     smtp_status: str | None = None
     smtp_catch_all: bool = False
@@ -80,12 +92,16 @@ class CheckResult:
             "risk_score": self.risk_score,
             "reasons": self.reasons,
             "weak_reasons": self.weak_reasons,
+            "soft_reasons": self.soft_reasons,
+            "hard_reasons": self.hard_reasons,
             "ip_status": self.ip_status,
             "ip_reason": self.ip_reason,
             "subnet_status": self.subnet_status,
             "subnet_reason": self.subnet_reason,
             "is_banned": self.is_banned,
             "normalized_email": self.normalized_email,
+            "suggested_domain": self.suggested_domain,
+            "typo_source": self.typo_source,
             "smtp_status": self.smtp_status,
             "smtp_catch_all": self.smtp_catch_all,
             "ip_type": self.ip_type,
@@ -126,6 +142,7 @@ def _compute_risk_score(
         "very_short_domain": 10,
         "multiple_aliases": 10,
         "role_account": 5,
+        "role_account_extended": 5,
         "invalid_format": 50,
         # Aug 2026 signals — see guardpost/email/validator.py for the evidence
         # behind each. dot_noise_local scored 71 hits and 0 paying users on the
@@ -159,11 +176,15 @@ def _compute_risk_score(
         score += 15
 
     # A bad /24 counts for less than a bad IP: the block is shared, so some of
-    # its neighbours are innocent.
-    if subnet_status == "blacklisted":
-        score += 20
-    elif subnet_status == "graylisted":
-        score += 10
+    # its neighbours are innocent. When the subnet_burst reason fired it has
+    # already scored this same /24 above, so the status bonus is not added
+    # again (counted once, as the Factory does).
+    has_subnet_reason = any(split_reason(r) == "subnet_burst" for r in reasons)
+    if not has_subnet_reason:
+        if subnet_status == "blacklisted":
+            score += 20
+        elif subnet_status == "graylisted":
+            score += 10
 
     return min(score, 100)
 
@@ -193,8 +214,19 @@ class Guardpost:
         ai_scorer: AIScorer | None = None,
         pattern_detector: PatternDetector | None = None,
         enrichment: EmailEnrichment | None = None,
+        trusted_extra_domains: Iterable[str] | str | None = None,
+        reason_tiers: Mapping[str, ReasonTier | str] | None = None,
         **ip_kwargs,
     ) -> None:
+        """
+        Args:
+            trusted_extra_domains: deployment-specific domains to trust on top
+                of the shared TRUSTED_EMAIL_DOMAINS (e.g. the Factory's
+                ``factory.bot`` and ``deleted.local``). ``None`` reads
+                GUARDPOST_TRUSTED_EXTRA_DOMAINS from the environment.
+            reason_tiers: per-reason-kind tier overrides on top of
+                DEFAULT_REASON_TIERS (e.g. ``{"typo_domain": "hard"}``).
+        """
         self.storage: StorageBackend = storage or MemoryStorage()
         self.ip_engine = IPReputationEngine(self.storage, **ip_kwargs)
         self.ban_engine = BannedEmailEngine(self.storage)
@@ -203,6 +235,13 @@ class Guardpost:
         self.ai_scorer = ai_scorer
         self.pattern_detector = pattern_detector
         self.enrichment = enrichment
+        self.trusted_extra_domains: frozenset[str] = (
+            trusted_extra_domains_from_env() if trusted_extra_domains is None
+            else parse_domain_list(trusted_extra_domains)
+        )
+        self.reason_tiers: dict[str, ReasonTier] = {
+            kind: ReasonTier(tier) for kind, tier in (reason_tiers or {}).items()
+        }
         self._last_purge: float = 0.0
         self._purge_interval: float = 3600.0  # purge old registrations every hour
         self._registration_ttl: float = 86400.0  # keep registrations for 24 hours
@@ -253,7 +292,9 @@ class Guardpost:
             CheckResult with risk score, reasons, and status.
         """
         # Email checks (pure, no storage needed)
-        is_suspicious, reasons = await check_registration_suspicion(email)
+        is_suspicious, reasons = await check_registration_suspicion(
+            email, trusted_extra_domains=self.trusted_extra_domains)
+        typo = classify_domain_typo(email) if "typo_domain" in reasons else None
 
         # Banned email check
         is_banned = await self.ban_engine.is_banned(email)
@@ -372,13 +413,13 @@ class Guardpost:
                 logger.debug("HIBP lookup failed for ***@%s", email.split("@")
                              [-1] if "@" in email else "unknown", exc_info=True)
 
-        # Combine. Only HARD reasons decide the verdict — every reason feeds the
-        # score. `is_suspicious` from the email layer is recomputed here rather
-        # than reused, because reasons added since (SMTP, proxy, subnet) have
-        # tiers of their own.
-        hard_reasons, weak_reasons = partition_reasons(reasons)
+        # Combine. Hard and soft reasons decide the verdict — every reason
+        # feeds the score. `is_suspicious` from the email layer is recomputed
+        # here rather than reused, because reasons added since (SMTP, proxy,
+        # subnet) have tiers of their own, and the tiers may be overridden.
+        hard_reasons, soft_reasons, weak_reasons = partition_reasons(reasons, self.reason_tiers)
         overall_suspicious = (
-            bool(hard_reasons) or is_banned or ip_status != "clean"
+            bool(hard_reasons or soft_reasons) or is_banned or ip_status != "clean"
         )
         risk_score = _compute_risk_score(
             reasons, ip_status, is_banned, subnet_status)
@@ -399,12 +440,16 @@ class Guardpost:
             risk_score=risk_score,
             reasons=reasons,
             weak_reasons=weak_reasons,
+            soft_reasons=soft_reasons,
+            hard_reasons=hard_reasons,
             ip_status=ip_status,
             ip_reason=ip_reason,
             subnet_status=subnet_status,
             subnet_reason=subnet_reason,
             is_banned=is_banned,
             normalized_email=normalize_email(email),
+            suggested_domain=typo[0] if typo else None,
+            typo_source=typo[1] if typo else None,
             smtp_status=smtp_status,
             smtp_catch_all=smtp_catch_all,
             ip_type=ip_type,
@@ -434,9 +479,8 @@ class Guardpost:
     def is_disposable(email: str) -> bool:
         return is_disposable_email(email)
 
-    @staticmethod
-    async def is_suspicious(email: str) -> tuple[bool, list[str]]:
-        return await is_suspicious_email(email)
+    async def is_suspicious(self, email: str) -> tuple[bool, list[str]]:
+        return await is_suspicious_email(email, trusted_extra_domains=self.trusted_extra_domains)
 
     @staticmethod
     def is_role_account(email: str) -> bool:

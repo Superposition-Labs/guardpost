@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Dispatched by update-blocklist.yml on auto/update-blocklist, because a PR
+  # opened with GITHUB_TOKEN does not trigger this workflow on its own.
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -15,7 +18,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "ruff>=0.5"
-      - run: ruff check guardpost/ tests/
+      - run: ruff check guardpost/ tests/ scripts/
 
   test:
     runs-on: ubuntu-latest
@@ -42,7 +45,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: [lint, test]
-    if: github.ref == 'refs/heads/main'
+    # Never publish from a manual dispatch, even one run against main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write

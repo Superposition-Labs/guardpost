@@ -1,20 +1,22 @@
 """Prometheus metrics for Guardpost.
 
 Enable by setting GUARDPOST_ENABLE_METRICS=1 or passing enable_metrics=True
-to create_app(). Exposes a /metrics endpoint for Prometheus scraping.
+to create_app(). Metrics are served on a SEPARATE port (GUARDPOST_METRICS_PORT,
+default 9100) by prometheus_client's own HTTP server, never by the API app, so
+publishing the API port does not publish the metrics.
 """
 
 from __future__ import annotations
 
 import time
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request
 from prometheus_client import (
     REGISTRY,
     Counter,
     Gauge,
     Histogram,
-    generate_latest,
+    start_http_server,
 )
 
 # ---------------------------------------------------------------------------
@@ -175,29 +177,37 @@ def record_check(result) -> None:
 # FastAPI integration
 # ---------------------------------------------------------------------------
 
+DEFAULT_METRICS_PORT = 9100
+UNMATCHED_ROUTE = "<unmatched>"
+
+
+def route_template(request: Request) -> str:
+    """The matched route's path template ("/api/v1/check"), never the raw path.
+
+    Raw paths are attacker-chosen, so labelling by them lets any client mint
+    unbounded label values. Requests that match no route share one label.
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) else UNMATCHED_ROUTE
+
 
 def instrument_app(app: FastAPI) -> None:
-    """Add Prometheus metrics endpoint and request duration middleware."""
+    """Add request-duration / rate-limit middleware to the API app.
+
+    The metrics themselves are NOT served by this app: call
+    start_metrics_server() to expose them on a separate, unpublished port.
+    """
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
-        if request.url.path == "/metrics":
-            return await call_next(request)
-
         start = time.perf_counter()
         response = await call_next(request)
         elapsed = time.perf_counter() - start
 
-        # Normalize path to avoid cardinality explosion
-        path = request.url.path
-        if path.startswith("/api/v1/"):
-            endpoint = path
-        else:
-            endpoint = path
-
         REQUEST_DURATION.labels(
             method=request.method,
-            endpoint=endpoint,
+            endpoint=route_template(request),
             status_code=str(response.status_code),
         ).observe(elapsed)
 
@@ -206,9 +216,13 @@ def instrument_app(app: FastAPI) -> None:
 
         return response
 
-    @app.get("/metrics", include_in_schema=False)
-    async def prometheus_metrics():
-        return Response(
-            content=generate_latest(REGISTRY),
-            media_type="text/plain; version=0.0.4; charset=utf-8",
-        )
+
+def start_metrics_server(port: int = DEFAULT_METRICS_PORT, addr: str = "127.0.0.1"):
+    """Serve /metrics on its own port (daemon thread). Returns (server, thread).
+
+    Keep this port off the public interface: in Docker, bind 0.0.0.0 inside the
+    container but never publish it, so only Prometheus on the internal network
+    can scrape it.
+    """
+    return start_http_server(port, addr=addr, registry=REGISTRY)
+

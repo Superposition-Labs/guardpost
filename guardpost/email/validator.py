@@ -1,7 +1,7 @@
 """Email validation engine for registration abuse detection.
 
 Provides multi-layer email validation:
-- Layer 1: Community-maintained disposable email blocklist (5,200+ domains)
+- Layer 1: Community-maintained disposable email blocklist (9,900+ domains)
 - Layer 2: Custom blocklist for manually confirmed disposable domains (170+)
 - Layer 3: Trusted domain whitelist (skip expensive DNS checks)
 - Layer 4: MX infrastructure detection (catch fresh throwaway domains)
@@ -13,23 +13,33 @@ deny bonuses silently so attackers can't learn detection signals.
 
 import asyncio
 import logging
+import os
 import re
+from collections.abc import Iterable, Mapping
+from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 
 import dns.resolver
 
 logger = logging.getLogger(__name__)
 
-# === LAYER 1: Community-maintained disposable email blocklist (5,200+ domains) ===
+# === LAYER 1: Community-maintained disposable email blocklist (9,900+ domains) ===
 # Source: https://github.com/disposable-email-domains/disposable-email-domains
-_BLOCKLIST_PATH = Path(__file__).resolve().parent.parent / \
+BLOCKLIST_PATH = Path(__file__).resolve().parent.parent / \
     "data" / "disposable_email_blocklist.conf"
+_BLOCKLIST_PATH = BLOCKLIST_PATH  # backward-compatible alias
+
+
+def parse_blocklist(text: str) -> frozenset[str]:
+    """Parse a blocklist file body: one domain per line, '#' starts a comment."""
+    return frozenset(
+        line.strip().lower() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    )
+
+
 try:
-    _community_blocklist = {
-        line.strip() for line in _BLOCKLIST_PATH.read_text().splitlines() if line.strip() and not line.startswith("#")
-    }
-    COMMUNITY_DISPOSABLE_DOMAINS: frozenset[str] = frozenset(
-        _community_blocklist)
+    COMMUNITY_DISPOSABLE_DOMAINS: frozenset[str] = parse_blocklist(BLOCKLIST_PATH.read_text())
     logger.info("Loaded %d community disposable domains",
                 len(COMMUNITY_DISPOSABLE_DOMAINS))
 except FileNotFoundError:
@@ -238,6 +248,14 @@ CUSTOM_DISPOSABLE_DOMAINS = frozenset(
         "trashlify.com",
         "tmail.ae",
         "smallmailo.my",
+        # Oct 2026: removed from the community list upstream, but the Factory
+        # still flags them (its vendored copy of the list predates the removal).
+        # Pinned here so a list refresh cannot silently un-flag them; recorded
+        # as known divergences from upstream.
+        "atomicmail.io",
+        "ip6.li",
+        "iwi.net",
+        "mailhub.pro",
     ]
 )
 
@@ -298,12 +316,6 @@ TRUSTED_EMAIL_DOMAINS = frozenset(
         "meta.ua",
         "tut.by",
         "mail.kz",
-        # Synthetic internal domains: the Telegram bot mints
-        # telegram_<id>@factory.bot accounts, and a soft-deleted user's address
-        # is rewritten to @deleted.local. Neither resolves, so without this they
-        # would trip no_mx_records on every check.
-        "factory.bot",
-        "deleted.local",
         # Regional providers
         "gmx.com",
         "gmx.de",
@@ -314,6 +326,28 @@ TRUSTED_EMAIL_DOMAINS = frozenset(
         "126.com",
     ]
 )
+
+# === LAYER 3a: Deployment-specific trusted domains ===
+# Synthetic domains that belong to ONE integrating app do not belong in the
+# shared list above. The Factory, for example, mints telegram_<id>@factory.bot
+# accounts and rewrites a soft-deleted address to @deleted.local; neither
+# resolves, so without trust they trip no_mx_records on every check. Such a
+# deployment sets GUARDPOST_TRUSTED_EXTRA_DOMAINS=factory.bot,deleted.local (or
+# passes trusted_extra_domains= to the engine). Per-tenant config replaces this.
+TRUSTED_EXTRA_DOMAINS_ENV = "GUARDPOST_TRUSTED_EXTRA_DOMAINS"
+
+
+def parse_domain_list(value: str | Iterable[str] | None) -> frozenset[str]:
+    """Normalize a comma-separated string (or iterable) of domains."""
+    if not value:
+        return frozenset()
+    items = value.split(",") if isinstance(value, str) else value
+    return frozenset(d.strip().lower().lstrip("@") for d in items if d and d.strip())
+
+
+def trusted_extra_domains_from_env() -> frozenset[str]:
+    """Read the deployment's extra trusted domains from the environment."""
+    return parse_domain_list(os.environ.get(TRUSTED_EXTRA_DOMAINS_ENV))
 
 # === B2C (consumer) email provider detection ===
 # Free/consumer email providers — registrations from these are individuals,
@@ -460,6 +494,7 @@ _SUSPICIOUS_DOMAIN_KEYWORDS = (
     "tempmailo",
     "mailtemp",
 )
+SUSPICIOUS_DOMAIN_KEYWORDS = _SUSPICIOUS_DOMAIN_KEYWORDS
 
 # === LAYER 4d: Lookalike / typo domains ===
 # Domains that are one keystroke from a major provider. Two distinct kinds live
@@ -666,12 +701,20 @@ def has_dot_noise(email: str) -> bool:
 
 
 # === LAYER 4g: Lookalike / typo domain detection ===
-def suggest_domain_correction(email_or_domain: str) -> str | None:
-    """Return the domain the user probably meant, or None.
+# Which rule produced a typo match. The Factory only has the exact map, so a
+# caller comparing verdicts can tell a shared match ("map") from a
+# Guardpost-only heuristic ("tld", "numeric").
+TYPO_SOURCE_MAP = "map"
+TYPO_SOURCE_TLD = "tld"
+TYPO_SOURCE_NUMERIC = "numeric"
 
-    Recognises three shapes: an exact entry in EMAIL_DOMAIN_TYPO_MAP, a mistyped
-    TLD (.ry for .ru, .con for .com), and a digit-prefixed provider name
-    (501gmail.com).
+
+def classify_domain_typo(email_or_domain: str) -> tuple[str, str] | None:
+    """Return (suggested_domain, source) for a lookalike domain, or None.
+
+    ``source`` is one of TYPO_SOURCE_MAP (exact EMAIL_DOMAIN_TYPO_MAP entry),
+    TYPO_SOURCE_TLD (mistyped TLD: .ry for .ru, .con for .com) or
+    TYPO_SOURCE_NUMERIC (digit-prefixed provider name: 501gmail.com).
     """
     domain = get_email_domain(email_or_domain) if "@" in email_or_domain \
         else email_or_domain.lower().strip()
@@ -680,18 +723,29 @@ def suggest_domain_correction(email_or_domain: str) -> str | None:
 
     corrected = EMAIL_DOMAIN_TYPO_MAP.get(domain)
     if corrected:
-        return corrected
+        return corrected, TYPO_SOURCE_MAP
 
     tld_typo = _TYPO_TLD_RE.match(domain)
     if tld_typo:
         # The ".ry" family is a mistyped ".ru"; the rest are mistyped ".com".
         suffix = ".ru" if tld_typo.group(2).startswith("r") else ".com"
-        return f"{tld_typo.group(1)}{suffix}"
+        return f"{tld_typo.group(1)}{suffix}", TYPO_SOURCE_TLD
 
     if _NUMERIC_PROVIDER_RE.match(domain):
-        return re.sub(r"^\d+", "", domain)
+        return re.sub(r"^\d+", "", domain), TYPO_SOURCE_NUMERIC
 
     return None
+
+
+def suggest_domain_correction(email_or_domain: str) -> str | None:
+    """Return the domain the user probably meant, or None.
+
+    Recognises three shapes: an exact entry in EMAIL_DOMAIN_TYPO_MAP, a mistyped
+    TLD (.ry for .ru, .con for .com), and a digit-prefixed provider name
+    (501gmail.com). classify_domain_typo() also says which one matched.
+    """
+    match = classify_domain_typo(email_or_domain)
+    return match[0] if match else None
 
 
 def is_typo_domain(email: str) -> bool:
@@ -753,25 +807,53 @@ def is_relay_email(email: str) -> bool:
 
 
 # === Reason tiers ===
-# A HARD reason is enough on its own to call an address suspicious. A WEAK
-# reason raises the risk score but never condemns, which is what lets fuzzy
-# rules ship at all: gibberish_domain matches ygwpr.com and dbwot.com, but it
-# also matches rudn.ru and kpfu.ru, and no rule that can zero a real student's
-# welcome credits belongs in the hard tier.
+# Every reason belongs to one of three tiers; a check's decision is the highest
+# tier present:
+#   HARD -> block   (refuse the signup outright)
+#   SOFT -> degrade (allow it, deny bonuses: the Factory's "suspicious")
+#   WEAK -> score   (raise risk_score only, never change the verdict)
 #
-# Every reason string that is NOT listed here is hard by default, so forgetting
-# to classify a new signal fails safe (it flags) rather than silently vanishing.
+# The defaults reproduce the Factory's semantics exactly:
+#   - HARD is empty. Guardpost has no block-class reasons yet; the Factory's
+#     blocking gates arrive with per-tenant tiers. So `is_suspicious` (hard or
+#     soft) still covers everything it covered before tiers existed.
+#   - WEAK holds the signals the Factory does not flag. gibberish_domain matches
+#     ygwpr.com and dbwot.com, but it also matches rudn.ru and kpfu.ru, and no
+#     rule that can zero a real student's welcome credits belongs above WEAK.
+#   - Everything else is SOFT, including subnet_burst (degrade-only, never a
+#     block) and any reason not listed here — forgetting to classify a new
+#     signal fails safe (it degrades) rather than silently vanishing.
+
+
+class ReasonTier(str, Enum):
+    HARD = "hard"
+    SOFT = "soft"
+    WEAK = "weak"
+
+
+HARD_REASONS: frozenset[str] = frozenset()
+
 WEAK_REASONS = frozenset(
     [
         "gibberish_domain",
         "relay_domain",
+        # dev@, design@, hello@ ... — the Factory does not flag these.
+        "role_account_extended",
+        # Guardpost-only: the Factory's MX test accepts a null MX ("." is an
+        # answer) and has no homograph check.
+        "homograph_domain",
+        "null_mx",
     ]
 )
 
+DEFAULT_REASON_TIER = ReasonTier.SOFT
 
-def has_hard_reason(reasons: list[str]) -> bool:
-    """Return True if any reason is strong enough to condemn the address."""
-    return any(split_reason(r) not in WEAK_REASONS for r in reasons)
+DEFAULT_REASON_TIERS: Mapping[str, ReasonTier] = MappingProxyType({
+    **{r: ReasonTier.HARD for r in HARD_REASONS},
+    **{r: ReasonTier.WEAK for r in WEAK_REASONS},
+})
+
+ReasonTiers = Mapping[str, "ReasonTier | str"]
 
 
 def split_reason(reason: str) -> str:
@@ -779,11 +861,37 @@ def split_reason(reason: str) -> str:
     return reason.split(":", 1)[0]
 
 
-def partition_reasons(reasons: list[str]) -> tuple[list[str], list[str]]:
-    """Split reasons into (hard, weak), preserving order within each tier."""
-    hard = [r for r in reasons if split_reason(r) not in WEAK_REASONS]
-    weak = [r for r in reasons if split_reason(r) in WEAK_REASONS]
-    return hard, weak
+def reason_tier(reason: str, tiers: ReasonTiers | None = None) -> ReasonTier:
+    """Tier of one reason. ``tiers`` overrides the defaults per reason kind."""
+    kind = split_reason(reason)
+    if tiers and kind in tiers:
+        return ReasonTier(tiers[kind])
+    return DEFAULT_REASON_TIERS.get(kind, DEFAULT_REASON_TIER)
+
+
+def partition_reasons(
+    reasons: list[str], tiers: ReasonTiers | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """Split reasons into (hard, soft, weak), preserving order within each tier."""
+    out: dict[ReasonTier, list[str]] = {t: [] for t in ReasonTier}
+    for r in reasons:
+        out[reason_tier(r, tiers)].append(r)
+    return out[ReasonTier.HARD], out[ReasonTier.SOFT], out[ReasonTier.WEAK]
+
+
+def has_suspicious_reason(reasons: list[str], tiers: ReasonTiers | None = None) -> bool:
+    """True if any reason is hard or soft, i.e. the address is suspicious."""
+    return any(reason_tier(r, tiers) is not ReasonTier.WEAK for r in reasons)
+
+
+def has_hard_reason(reasons: list[str]) -> bool:
+    """Pre-tier name for has_suspicious_reason(): any reason that is not weak.
+
+    Kept for callers written when there were only two tiers ("hard" then meant
+    "condemns"). It is true for soft reasons too; for the block tier use
+    ``partition_reasons(reasons)[0]``.
+    """
+    return has_suspicious_reason(reasons)
 
 
 # === LAYER 5: DNS MX record cache ===
@@ -796,21 +904,61 @@ _mx_host_cache: dict[str, str | None] = {}
 # ---------------------------------------------------------------------------
 # Role account prefixes (info@, admin@, etc.)
 # ---------------------------------------------------------------------------
-ROLE_ACCOUNT_PREFIXES = frozenset(
+# The Factory's 43 prefixes. Reason "role_account" — the Factory flags these as
+# suspicious, so they sit in the soft tier and keep the verdicts aligned.
+# Pinned by tests/test_factory_superset.py against Factory v2's email-lists.json.
+CORE_ROLE_ACCOUNT_PREFIXES = frozenset(
     [
-        # RFC 2142 required
         "abuse",
         "admin",
         "administrator",
+        "billing",
+        "contact",
+        "cs",
+        "customerservice",
+        "help",
+        "helpdesk",
         "hostmaster",
+        "hr",
         "info",
+        "legal",
         "mailer-daemon",
+        "marketing",
+        "no-reply",
         "noc",
+        "noreply",
+        "not-reply",
+        "notifications",
+        "notify",
+        "office",
+        "operations",
+        "ops",
+        "payments",
         "postmaster",
+        "press",
+        "privacy",
         "root",
+        "sales",
         "security",
+        "service",
+        "shipping",
+        "spam",
+        "support",
+        "sysadmin",
+        "team",
+        "tech",
+        "tickets",
+        "unsubscribe",
         "usenet",
         "webmaster",
+        "welcome",
+    ]
+)
+
+# Guardpost-only prefixes. Reason "role_account_extended" — a weak signal: the
+# Factory never flags dev@, design@ or hello@, so they only raise the score.
+EXTENDED_ROLE_ACCOUNT_PREFIXES = frozenset(
+    [
         # Common departments / functions
         "accounting",
         "accounts",
@@ -818,7 +966,6 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "advertising",
         "ap",
         "ar",
-        "billing",
         "bookings",
         "business",
         "careers",
@@ -831,16 +978,13 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "community",
         "company",
         "compliance",
-        "contact",
         "contactus",
         "contracts",
         "controller",
         "copywriting",
         "creative",
-        "cs",
         "customercare",
         "customers",
-        "customerservice",
         "delivery",
         "design",
         "dev",
@@ -872,11 +1016,8 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "guest",
         "guests",
         "hello",
-        "help",
-        "helpdesk",
         "hiring",
         "hospitality",
-        "hr",
         "incident",
         "inquiries",
         "inquiry",
@@ -890,7 +1031,6 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "invoicing",
         "it",
         "jobs",
-        "legal",
         "liaison",
         "list",
         "listserv",
@@ -902,24 +1042,15 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "management",
         "manager",
         "managing",
-        "marketing",
         "media",
         "member",
         "members",
         "membership",
         "news",
         "newsletter",
-        "no-reply",
         "nobody",
-        "noreply",
-        "not-reply",
         "notification",
-        "notifications",
-        "notify",
-        "office",
         "online",
-        "operations",
-        "ops",
         "order",
         "orders",
         "outreach",
@@ -928,16 +1059,13 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "partner",
         "partners",
         "partnerships",
-        "payments",
         "payroll",
         "pharmacy",
         "planning",
         "platform",
         "postbox",
         "pr",
-        "press",
         "principal",
-        "privacy",
         "procurement",
         "product",
         "production",
@@ -963,32 +1091,22 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "returns",
         "rma",
         "safety",
-        "sales",
         "schedule",
         "secretary",
         "server",
-        "service",
-        "shipping",
         "social",
-        "spam",
         "staff",
         "store",
         "subscribe",
         "subscriptions",
         "suggestions",
-        "support",
         "survey",
-        "sysadmin",
-        "team",
-        "tech",
         "technical",
         "test",
-        "tickets",
         "training",
         "travel",
         "trouble",
         "undisclosed-recipients",
-        "unsubscribe",
         "update",
         "updates",
         "vendor",
@@ -997,11 +1115,13 @@ ROLE_ACCOUNT_PREFIXES = frozenset(
         "volunteer",
         "web",
         "webadmin",
-        "welcome",
         "wiki",
         "www",
     ]
-)
+) - CORE_ROLE_ACCOUNT_PREFIXES
+
+# Every role prefix, either tier (is_role_account() and older callers).
+ROLE_ACCOUNT_PREFIXES = CORE_ROLE_ACCOUNT_PREFIXES | EXTENDED_ROLE_ACCOUNT_PREFIXES
 
 
 # ---------------------------------------------------------------------------
@@ -1082,11 +1202,26 @@ def is_disposable_email(email: str) -> bool:
 
 
 def is_role_account(email: str) -> bool:
-    """Check if email is a role/functional account (info@, admin@, etc.)."""
+    """Check if email is a role/functional account (info@, admin@, etc.).
+
+    True for either tier; role_account_reason() tells them apart.
+    """
     if not email or "@" not in email:
         return False
     local = email.lower().split("@")[0]
     return local in ROLE_ACCOUNT_PREFIXES
+
+
+def role_account_reason(email: str) -> str | None:
+    """Return "role_account" (Factory prefixes), "role_account_extended", or None."""
+    if not email or "@" not in email:
+        return None
+    local = email.lower().split("@")[0]
+    if local in CORE_ROLE_ACCOUNT_PREFIXES:
+        return "role_account"
+    if local in EXTENDED_ROLE_ACCOUNT_PREFIXES:
+        return "role_account_extended"
+    return None
 
 
 def is_b2c_email(email: str) -> bool:
@@ -1250,7 +1385,11 @@ async def check_mx_points_to_disposable(domain: str) -> bool:
     return False
 
 
-async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
+async def is_suspicious_email(
+    email: str,
+    *,
+    trusted_extra_domains: Iterable[str] = (),
+) -> tuple[bool, list[str]]:
     """Multi-layer email suspicion check.
 
     Layers:
@@ -1259,6 +1398,10 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
     3. Heuristic patterns (numeric domains, short domains, keyword domains)
     4. DNS MX record validation (including RFC 7505 null MX)
     5. MX infrastructure check
+
+    Args:
+        trusted_extra_domains: deployment-specific domains treated exactly like
+            TRUSTED_EMAIL_DOMAINS (see TRUSTED_EXTRA_DOMAINS_ENV).
 
     Returns:
         (is_suspicious, reasons)
@@ -1275,8 +1418,8 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
 
     domain = get_email_domain(email)
     if domain:
-        if domain in TRUSTED_EMAIL_DOMAINS:
-            return len(reasons) > 0, reasons
+        if domain in TRUSTED_EMAIL_DOMAINS or domain in trusted_extra_domains:
+            return has_suspicious_reason(reasons), reasons
 
         # Lookalikes have live catch-all MX as often as not, so the DNS layers
         # below cannot be relied on to catch them.
@@ -1305,10 +1448,10 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
                 reasons.append("suspicious_domain_keyword")
                 break
 
-        # Only a HARD reason short-circuits the DNS layers. Guarding on
-        # `reasons` instead would let a weak signal such as gibberish_domain
+        # Only a hard or soft reason short-circuits the DNS layers. Guarding
+        # on `reasons` instead would let a weak signal such as gibberish_domain
         # silently suppress the MX checks that do the real work.
-        if not has_hard_reason(reasons):
+        if not has_suspicious_reason(reasons):
             if await check_domain_has_null_mx(domain):
                 reasons.append("null_mx")
             elif not await check_domain_has_mx(domain):
@@ -1316,10 +1459,14 @@ async def is_suspicious_email(email: str) -> tuple[bool, list[str]]:
             elif await check_mx_points_to_disposable(domain):
                 reasons.append("disposable_mx_infrastructure")
 
-    return has_hard_reason(reasons), reasons
+    return has_suspicious_reason(reasons), reasons
 
 
-async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
+async def check_registration_suspicion(
+    email: str,
+    *,
+    trusted_extra_domains: Iterable[str] = (),
+) -> tuple[bool, list[str]]:
     """Full registration suspicion check with all layers.
 
     Delegates to is_suspicious_email() and adds registration-specific
@@ -1337,15 +1484,19 @@ async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
         return True, ["invalid_format"]
 
     # Core suspicion checks (disposable, heuristic, DNS)
-    is_suspicious, reasons = await is_suspicious_email(email)
+    is_suspicious, reasons = await is_suspicious_email(
+        email, trusted_extra_domains=trusted_extra_domains)
 
     # Registration-specific extras
     local = email.split("@")[0]
     if local.count("+") > 1:
         reasons.append("multiple_aliases")
 
-    if is_role_account(email):
-        reasons.append("role_account")
+    # "role_account" for the Factory's prefixes, "role_account_extended" (weak)
+    # for the Guardpost-only rest.
+    role_reason = role_account_reason(email)
+    if role_reason:
+        reasons.append(role_reason)
 
     # Gmail-family only, so this has to run here rather than inside
     # is_suspicious_email(), which returns early for every trusted domain.
@@ -1358,7 +1509,7 @@ async def check_registration_suspicion(email: str) -> tuple[bool, list[str]]:
     # if _is_gibberish_username(clean_local):
     #     reasons.append("gibberish_username")
 
-    is_suspicious = has_hard_reason(reasons)
+    is_suspicious = has_suspicious_reason(reasons)
     if is_suspicious:
         domain = get_email_domain(email)
         logger.info(
