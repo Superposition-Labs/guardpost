@@ -49,6 +49,22 @@ def test_migrate(gp):
     assert "up to date" in out
 
 
+def test_migrate_vacuum(gp):
+    gp("migrate")
+    conn = sqlite3.connect(gp.db)
+    conn.execute("CREATE TABLE scratch (v TEXT)")
+    conn.executemany("INSERT INTO scratch VALUES (?)", [(f"left.behind{i}@gmail.com",) for i in range(2000)])
+    conn.commit()
+    conn.execute("DROP TABLE scratch")
+    conn.commit()
+    assert conn.execute("PRAGMA freelist_count").fetchone()[0] > 0
+    conn.close()
+    out, _ = gp("migrate", "--vacuum")
+    assert "up to date" in out and "vacuumed" in out
+    data = open(gp.db, "rb").read()
+    assert b"left.behind" not in data
+
+
 def test_commands_refuse_an_unmigrated_database(gp):
     _, err = gp("tenant", "list", ok=False)
     assert "guardpost migrate" in err

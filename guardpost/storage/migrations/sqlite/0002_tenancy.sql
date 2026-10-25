@@ -10,6 +10,10 @@
 --   counters start from what 0.2's /stats reported (the per-IP counters;
 --   /24 rows excluded, which 0.2 double-counted).
 -- * ip_reputation is unchanged: it is shared by every tenant.
+--
+-- The runner VACUUMs after this migration, so the dropped plaintext does not
+-- linger in free pages:
+-- guardpost:vacuum-after
 
 INSERT OR IGNORE INTO gp_meta (key, value) VALUES ('legacy_tenant', 'default');
 

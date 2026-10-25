@@ -118,6 +118,9 @@ def _add_admin_commands(sub) -> None:
     migrate = sub.add_parser("migrate", help="Apply pending database migrations")
     _db_arg(migrate)
     migrate.add_argument("--status", action="store_true", help="Only show the schema version and pending migrations")
+    migrate.add_argument("--vacuum", action="store_true",
+                         help="Also rewrite the file without free pages (a database migrated by 0.3.0, which kept "
+                              "the dropped 0.2 registrations in free pages)")
 
     tenant = sub.add_parser("tenant", help="Manage tenants").add_subparsers(dest="action", required=True)
     t = tenant.add_parser("create", help="Create a tenant")
@@ -240,6 +243,12 @@ async def _admin(args) -> None:
                       f"now at version {max(applied)}")
             else:
                 print(f"{storage.db_path}: up to date (version {current})")
+            if args.vacuum:
+                from guardpost.storage.migrations import purge_free_pages
+
+                with storage._lock:
+                    free = purge_free_pages(storage._get_conn())
+                print(f"{storage.db_path}: vacuumed ({free} free pages dropped)")
             return
 
         with storage._lock:
