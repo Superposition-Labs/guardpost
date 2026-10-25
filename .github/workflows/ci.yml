@@ -37,6 +37,31 @@ jobs:
       - name: Check openapi/guardpost.json for drift
         run: uv run --no-sync python scripts/export_openapi.py --check
 
+  ts-client:
+    # clients/ts: typecheck, tests (source and the committed dist/), generated
+    # src/schema.d.ts and dist/ current with openapi/guardpost.json, tarball contents.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["22", "24"]
+    defaults:
+      run:
+        working-directory: clients/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Check src/schema.d.ts and dist/ for drift
+        run: npm run check:generated
+      - name: npm pack --dry-run
+        run: npm run check:pack
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -61,7 +86,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [lint, openapi, test]
+    needs: [lint, openapi, ts-client, test]
     # Never publish from a manual dispatch, even one run against main.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
