@@ -17,17 +17,13 @@ from datetime import UTC, datetime
 
 from guardpost.email.banned import BannedEmailRecord
 from guardpost.ip.reputation import IPReputationRecord
+from guardpost.models import EVENT_TYPES  # noqa: F401  (re-exported)
 from guardpost.storage.sqlite import SQLiteStorage
 from guardpost.tenancy.models import format_ts
 
 DAY = 86_400.0
 
-# Lifecycle events and the account column each one sets (None: no column).
-EVENT_TYPES = (
-    "created", "deleted", "banned", "unbanned", "paid", "flagged", "unflagged",
-    "referral_code_retracted", "referral_code_restored",
-)
-
+# Lifecycle events: guardpost.models.EVENT_TYPES (re-exported here).
 ACCOUNT_FLAGS = ("deleted_at", "banned_at", "paid_at", "flagged_at", "referral_code_retracted_at")
 
 

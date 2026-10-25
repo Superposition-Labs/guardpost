@@ -38,6 +38,7 @@ from guardpost.ip.reputation import IPReputationEngine, IPReputationRecord
 from guardpost.ledger import store
 from guardpost.ledger.keys import TenantHasher, normalized_email_sha256
 from guardpost.ledger.store import LedgerView
+from guardpost.models import IMPORT_MAX_ROWS
 from guardpost.rules import RULESET
 from guardpost.rules.device import device_repeat_reason, registration_fingerprint
 from guardpost.rules.namekey import registration_name_key
@@ -65,7 +66,6 @@ if TYPE_CHECKING:
 CLOCK_SKEW_SECONDS = 15 * 60
 # An evaluate check can be committed for this long.
 PENDING_SECONDS = 3600
-IMPORT_MAX_ROWS = 1000
 
 
 class LedgerError(Exception):

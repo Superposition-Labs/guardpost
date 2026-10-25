@@ -307,9 +307,9 @@ def _read_rows(path: str) -> list[dict]:
 async def _ip_reputation_import(storage, args) -> None:
     from pydantic import ValidationError
 
-    from guardpost.api.v2 import IPReputationImport
     from guardpost.ledger.service import ip_record_from_import, merge_ip_records
     from guardpost.ledger.store import LedgerView
+    from guardpost.models import IPReputationImport
 
     raw = _read_rows(args.file)
     try:

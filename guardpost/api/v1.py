@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from guardpost import __version__
 from guardpost.api.deps import CheckScope, DashboardScope, EngineDep, LifecycleScope, TenantDep
 from guardpost.email.validator import classify_domain_typo
+from guardpost.models import HealthResponse
 
 router = APIRouter()
 
@@ -197,11 +198,6 @@ class BanResponse(BaseModel):
 
 class UnbanRequest(BaseModel):
     email: str = Field(max_length=254)
-
-
-class HealthResponse(BaseModel):
-    status: str = "ok"
-    version: str
 
 
 class AIScoreRequest(BaseModel):
