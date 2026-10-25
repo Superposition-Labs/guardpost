@@ -1,5 +1,10 @@
 FROM python:3.12.10-slim AS builder
 
+# .git is not in the build context, so hatch-vcs can't read the version here:
+# CI passes it in (release tag, or the dev version on main).
+ARG GUARDPOST_VERSION=0.0.0.dev0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${GUARDPOST_VERSION}
+
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY guardpost/ guardpost/
