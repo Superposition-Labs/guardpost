@@ -44,6 +44,20 @@ def main(argv: list[str] | None = None) -> None:
     )
     serve_parser.add_argument("--rate-limit", type=int, default=0,
                               help="Max requests per minute per IP (0 = disabled)")
+    serve_parser.add_argument(
+        "--trusted-proxies", default=None,
+        help="Comma-separated CIDRs of reverse proxies allowed to set X-Forwarded-For "
+             "(default: $GUARDPOST_TRUSTED_PROXIES; none = header ignored)")
+    serve_parser.add_argument(
+        "--enable-metrics", action="store_true",
+        help="Serve Prometheus metrics on a separate port (also $GUARDPOST_ENABLE_METRICS)")
+    serve_parser.add_argument(
+        "--metrics-port", type=int, default=None,
+        help="Metrics port (default: $GUARDPOST_METRICS_PORT or 9100)")
+    serve_parser.add_argument(
+        "--metrics-host", default=None,
+        help="Metrics bind host (default: $GUARDPOST_METRICS_HOST, else --host). "
+             "Never publish this port.")
 
     # --- check ---
     check_parser = sub.add_parser(
@@ -91,6 +105,8 @@ def _serve(args) -> None:
         print("Install it with: pip install guardpost[api]")
         sys.exit(1)
 
+    import os
+
     from guardpost.api.server import create_app
 
     app = create_app(
@@ -104,8 +120,15 @@ def _serve(args) -> None:
         enable_enrichment=args.enable_enrichment,
         rate_limit=args.rate_limit,
         maxmind_db_path=args.maxmind_db,
+        trusted_proxies=args.trusted_proxies,
+        enable_metrics=args.enable_metrics,
+        metrics_port=args.metrics_port,
+        metrics_host=args.metrics_host or os.environ.get("GUARDPOST_METRICS_HOST") or args.host,
     )
-    uvicorn.run(app, host=args.host, port=args.port)
+    # proxy_headers=False: uvicorn would otherwise rewrite the peer address
+    # from X-Forwarded-For on its own (FORWARDED_ALLOW_IPS), bypassing
+    # GUARDPOST_TRUSTED_PROXIES. Guardpost resolves the client IP itself.
+    uvicorn.run(app, host=args.host, port=args.port, proxy_headers=False)
 
 
 def _check(args) -> None:

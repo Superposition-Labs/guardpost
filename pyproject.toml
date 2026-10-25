@@ -63,8 +63,15 @@ client = [
 enrichment = [
     "httpx>=0.27,<1.0",
 ]
+metrics = [
+    "prometheus_client>=0.20",
+]
+# Everything the API server image runs (the Dockerfile adds redis).
+server = [
+    "guardpost-server[api,metrics,proxy,ai,enrichment]",
+]
 all = [
-    "guardpost-server[api,ai,proxy,client,enrichment]",
+    "guardpost-server[api,ai,proxy,client,enrichment,metrics]",
 ]
 dev = [
     "guardpost-server[all]",

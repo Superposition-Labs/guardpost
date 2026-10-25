@@ -72,7 +72,7 @@ async with GuardpostClient("http://localhost:8000", api_key="your-secret-key") a
 ```bash
 git clone https://github.com/Superposition-Labs/guardpost
 cd guardpost
-pip install -e ".[api]"
+pip install -e ".[api]"      # or ".[server]" for everything the Docker image runs
 guardpost check user@mailinator.com
 guardpost check user@gmail.com --ip 1.2.3.4
 ```
@@ -153,6 +153,10 @@ gp = Guardpost(
 | `GUARDPOST_API_KEY`                | API key for authentication             |
 | `GUARDPOST_REDIS_URL`              | Redis connection URL                   |
 | `GUARDPOST_RATE_LIMIT`             | Max requests/min per IP (0 = disabled) |
+| `GUARDPOST_TRUSTED_PROXIES`        | Comma-separated CIDRs of reverse proxies allowed to set `X-Forwarded-For` (see below) |
+| `GUARDPOST_ENABLE_METRICS`         | Serve Prometheus metrics on a separate port |
+| `GUARDPOST_METRICS_PORT`           | Metrics port (default `9100`)          |
+| `GUARDPOST_METRICS_HOST`           | Metrics bind address (default: the API `--host`; `127.0.0.1` outside the CLI) |
 | `GUARDPOST_ENABLE_SMTP`            | Enable SMTP verification               |
 | `GUARDPOST_ENABLE_PROXY_DETECTION` | Enable VPN/proxy detection             |
 | `GUARDPOST_ENABLE_AI`              | Enable AI scoring                      |
@@ -163,6 +167,30 @@ gp = Guardpost(
 | `GUARDPOST_MAXMIND_DB`             | Path to MaxMind GeoLite2 ASN .mmdb     |
 | `HIBP_API_KEY`                     | Have I Been Pwned API key              |
 | `GUARDPOST_TRUSTED_EXTRA_DOMAINS`  | Comma-separated deployment-specific domains to trust (e.g. `factory.bot,deleted.local`), on top of the shared trusted list |
+
+### Client IP behind a reverse proxy
+
+`X-Forwarded-For` is ignored unless the direct peer is listed in
+`GUARDPOST_TRUSTED_PROXIES` (or `guardpost serve --trusted-proxies`). When it
+is, Guardpost walks the header right to left and takes the first hop that is not
+a trusted proxy, so a client cannot choose its rate-limit key by sending its own
+header. With nothing configured, the TCP peer address is the client. uvicorn's
+own proxy-header rewriting is disabled by `guardpost serve` so this is the only
+place the client IP is derived.
+
+### Metrics
+
+```bash
+guardpost serve --enable-metrics --metrics-port 9100   # or GUARDPOST_ENABLE_METRICS=1
+curl http://127.0.0.1:9100/metrics
+```
+
+Metrics are served by a separate listener, not by the API app: `/metrics` on the
+API port returns 404. In Docker the listener binds inside the container (the
+image runs with `--host 0.0.0.0`) and the port is not `EXPOSE`d; scrape it over
+the internal network and never publish it. Request latency is labelled by route
+template (`/api/v1/check`), never by the raw path. Requires the `metrics` extra
+(included in `server` and in the Docker image).
 
 ### Storage Backends
 

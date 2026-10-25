@@ -8,7 +8,7 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${GUARDPOST_VERSION}
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY guardpost/ guardpost/
-RUN pip install --no-cache-dir .[api,redis]
+RUN pip install --no-cache-dir ".[server,redis]"
 
 FROM python:3.12.10-slim
 
@@ -27,6 +27,8 @@ RUN mkdir -p /data && chown guardpost:guardpost /data
 ENV GUARDPOST_DB_PATH=/data/guardpost.db
 
 VOLUME /data
+# API only. Metrics (GUARDPOST_ENABLE_METRICS, port 9100) are deliberately not
+# exposed: scrape them over the internal network, never publish them.
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

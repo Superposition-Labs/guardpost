@@ -22,6 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
+from guardpost import __version__
+from guardpost.api.proxies import parse_trusted_proxies, request_client_ip, trusted_proxies_from_env
 from guardpost.email.validator import classify_domain_typo
 from guardpost.engine import Guardpost
 from guardpost.storage.sqlite import SQLiteStorage
@@ -376,8 +378,30 @@ def create_app(
     maxmind_db_path: str | None = None,
     enable_metrics: bool = False,
     trusted_extra_domains: list[str] | str | None = None,
+    trusted_proxies: list[str] | str | None = None,
+    metrics_port: int | None = None,
+    metrics_host: str | None = None,
 ) -> FastAPI:
-    """Create the FastAPI application."""
+    """Create the FastAPI application.
+
+    Args:
+        trusted_proxies: CIDRs/addresses of reverse proxies allowed to set
+            X-Forwarded-For. ``None`` reads GUARDPOST_TRUSTED_PROXIES. Without
+            any, the header is ignored and the TCP peer is the client.
+        enable_metrics: serve Prometheus metrics (also GUARDPOST_ENABLE_METRICS)
+            on ``metrics_port`` (GUARDPOST_METRICS_PORT, default 9100) and
+            ``metrics_host`` (GUARDPOST_METRICS_HOST, default 127.0.0.1) —
+            a separate listener, never a route on this app.
+    """
+    # Parsed up front so a bad CIDR fails at startup, not on the first request.
+    resolved_proxies = (
+        trusted_proxies_from_env() if trusted_proxies is None
+        else parse_trusted_proxies(trusted_proxies)
+    )
+    metrics_enabled = bool(enable_metrics or os.environ.get("GUARDPOST_ENABLE_METRICS"))
+    resolved_metrics_port = metrics_port if metrics_port is not None else int(
+        os.environ.get("GUARDPOST_METRICS_PORT", "9100"))
+    resolved_metrics_host = metrics_host or os.environ.get("GUARDPOST_METRICS_HOST", "127.0.0.1")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -483,15 +507,28 @@ def create_app(
                 logger.info(
                     "Rate limiting enabled: %d requests/min per IP", _rate_limit)
 
-        yield
+        metrics_server = None
+        if metrics_enabled:
+            from guardpost.metrics import start_metrics_server
 
-        await _engine.close()
-        _engine = None
+            metrics_server, _ = start_metrics_server(resolved_metrics_port, resolved_metrics_host)
+            app.state.metrics_port = metrics_server.server_port
+            logger.info("Prometheus metrics on http://%s:%d/metrics (separate listener)",
+                        resolved_metrics_host, metrics_server.server_port)
+
+        try:
+            yield
+        finally:
+            if metrics_server is not None:
+                metrics_server.shutdown()
+                metrics_server.server_close()
+            await _engine.close()
+            _engine = None
 
     app = FastAPI(
         title="Guardpost",
         description="Self-hosted registration abuse detection API",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -505,22 +542,15 @@ def create_app(
         allow_headers=["X-Api-Key", "Content-Type"],
     )
 
-    # Prometheus metrics (opt-in)
-    if enable_metrics or os.environ.get("GUARDPOST_ENABLE_METRICS"):
-        from guardpost.metrics import instrument_app
-
-        instrument_app(app)
-        logger.info("Prometheus metrics enabled at /metrics")
+    if resolved_proxies:
+        logger.info("Trusting X-Forwarded-For from: %s", ", ".join(map(str, resolved_proxies)))
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
         if _rate_limit:
-            # Support X-Forwarded-For for clients behind a reverse proxy
-            forwarded = request.headers.get("x-forwarded-for")
-            if forwarded:
-                client_ip = forwarded.split(",")[0].strip()
-            else:
-                client_ip = request.client.host if request.client else "unknown"
+            # X-Forwarded-For counts only when the peer is a trusted proxy;
+            # otherwise any caller could pick the key it is limited under.
+            client_ip = request_client_ip(request, resolved_proxies)
             if _redis_storage:
                 allowed = await _redis_storage.rate_limit_check(
                     client_ip, _rate_limit,
@@ -533,6 +563,13 @@ def create_app(
                     content={"detail": "Rate limit exceeded"},
                 )
         return await call_next(request)
+
+    # Prometheus request metrics (opt-in). Registered after the rate limiter so
+    # it is the outer middleware and also sees the limiter's 429s.
+    if metrics_enabled:
+        from guardpost.metrics import instrument_app
+
+        instrument_app(app)
 
     # ------------------------------------------------------------------
     # Routes
@@ -566,8 +603,6 @@ def create_app(
     @app.get("/api/v1/health", response_model=HealthResponse,
              dependencies=[Depends(_check_api_key)])
     async def health():
-        from guardpost import __version__
-
         return HealthResponse(version=__version__)
 
     # -- Kubernetes / Docker health probes (unauthenticated) ---------------
