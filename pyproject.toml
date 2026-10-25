@@ -78,10 +78,10 @@ dev = [
 guardpost = "guardpost.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/superpositionlabs/guardpost"
-Documentation = "https://github.com/superpositionlabs/guardpost#readme"
-Repository = "https://github.com/superpositionlabs/guardpost"
-Issues = "https://github.com/superpositionlabs/guardpost/issues"
+Homepage = "https://github.com/Superposition-Labs/guardpost"
+Documentation = "https://github.com/Superposition-Labs/guardpost#readme"
+Repository = "https://github.com/Superposition-Labs/guardpost"
+Issues = "https://github.com/Superposition-Labs/guardpost/issues"
 
 [tool.hatch.version]
 source = "vcs"
