@@ -1,0 +1,2898 @@
+{
+ "ruleset": "2026.11-1",
+ "provenance": {
+  "functions": "Expected values computed by running Factory v2's TypeScript (origin/main 2fa0e461a4ba: same-person.ts, device-repeat.ts, ip-reputation.ts, email.ts, email-validation.ts) under Node 26 type stripping, with v2's stubDnsResolver semantics for email_flags and email_gate.",
+  "scenarios": "Expected decisions derived from register.ts, oauth.ts, device-repeat.ts, same-person.ts and referrals/signup.ts. Factory v2's parity test runs the same scenarios through assessSignup.",
+  "data": "Synthetic: example addresses and test IPs only. Reasons name accounts by their scenario id; Factory names the earlier account by email (same_device:<email>), so compare kinds, not details."
+ },
+ "conventions": {
+  "time": "Scenario steps run in order at their 'at' time (occurred_at). Windows are [at - window, at).",
+  "check": "Each check step evaluates the signup (POST /api/v2/check, mode evaluate) and, unless it is blocked, commits it as request.account.id (POST /api/v2/accounts): like v2, a refused signup creates no account. expect lists the exact hard and soft reason codes in order (weak reasons are Guardpost-only), the decision, the actions, the block code and the referral verdict (null when the request has no referral).",
+  "event": "POST /api/v2/accounts/{account_id}/events.",
+  "ip_reputation": "Rows merged into the shared IP reputation table (Factory v2 ip_reputation columns).",
+  "dns": "MX table for the scenario (unknown names: no MX); trusted domains never reach DNS.",
+  "tenant": "A fresh instance per scenario (empty ledger and shared IP reputation), one tenant with the default config.",
+  "trusted_extra_domains": "email_flags and email_gate run with the Factory tenant's extra trusted domains (factory.bot, deleted.local), which v2 keeps in its shared list."
+ },
+ "functions": {
+  "name_token": [
+   {
+    "in": "Khristina",
+    "out": "hristina"
+   },
+   {
+    "in": "Христина",
+    "out": "hristina"
+   },
+   {
+    "in": "Yakovleva",
+    "out": "iakovleva"
+   },
+   {
+    "in": "Яковлева",
+    "out": "iakovleva"
+   },
+   {
+    "in": "Xenia",
+    "out": "ksenia"
+   },
+   {
+    "in": "Ксения",
+    "out": "ksenia"
+   },
+   {
+    "in": "Phillips",
+    "out": "filips"
+   },
+   {
+    "in": "Филиппова",
+    "out": "filipova"
+   },
+   {
+    "in": "Jürgen",
+    "out": "irgen"
+   },
+   {
+    "in": "Weiß",
+    "out": "vei"
+   },
+   {
+    "in": "Щукина",
+    "out": "schukina"
+   },
+   {
+    "in": "Объедков",
+    "out": "obedkov"
+   },
+   {
+    "in": "Anna-Maria",
+    "out": "anamaria"
+   },
+   {
+    "in": "Їжак",
+    "out": "zhak"
+   },
+   {
+    "in": "MÜLLER",
+    "out": "mler"
+   },
+   {
+    "in": "Wladimir",
+    "out": "vladimir"
+   },
+   {
+    "in": "Владимир",
+    "out": "vladimir"
+   },
+   {
+    "in": "Аллочка",
+    "out": "alochka"
+   },
+   {
+    "in": "kkhh",
+    "out": "kh"
+   },
+   {
+    "in": "phph",
+    "out": "f"
+   }
+  ],
+  "name_key": [
+   {
+    "first": "Alina",
+    "last": "Sinichkina",
+    "display": null,
+    "email": "alina.example@yandex.ru",
+    "out": "alina sinichkina"
+   },
+   {
+    "first": "Алина",
+    "last": "Синичкина",
+    "display": null,
+    "email": "alina.second.example@yandex.ru",
+    "out": "alina sinichkina"
+   },
+   {
+    "first": "Sinichkina",
+    "last": "Alina",
+    "display": null,
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "Alina Sinichkina",
+    "email": "a.example@yandex.ru",
+    "out": "alina sinichkina"
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "Alina Sinichkina",
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": "",
+    "last": "  ",
+    "display": "Алина Синичкина",
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "alina.sinichkina",
+    "email": "alina.sinichkina@example.org",
+    "out": null
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "Alina.Sinichkina",
+    "email": "alina.sinichkina@example.org",
+    "out": null
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "alina sinichkina",
+    "email": "alina sinichkina@example.org",
+    "out": null
+   },
+   {
+    "first": "Alina",
+    "last": null,
+    "display": "Alina Sinichkina",
+    "email": null,
+    "out": null
+   },
+   {
+    "first": "Alina",
+    "last": "",
+    "display": null,
+    "email": null,
+    "out": null
+   },
+   {
+    "first": "A",
+    "last": "B",
+    "display": null,
+    "email": null,
+    "out": null
+   },
+   {
+    "first": "Al",
+    "last": "Bo",
+    "display": null,
+    "email": null,
+    "out": "al bo"
+   },
+   {
+    "first": "  Alina \t",
+    "last": "　Sinichkina ",
+    "display": null,
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": "﻿Alina",
+    "last": "Sinichkina﻿",
+    "display": null,
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "Alina\u001cSinichkina",
+    "email": null,
+    "out": null
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "AlinaSinichkina",
+    "email": null,
+    "out": null
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "Alina​Sinichkina",
+    "email": null,
+    "out": null
+   },
+   {
+    "first": "Khristina",
+    "last": "Yakovleva",
+    "display": null,
+    "email": null,
+    "out": "hristina iakovleva"
+   },
+   {
+    "first": "Христина",
+    "last": "Яковлева",
+    "display": null,
+    "email": null,
+    "out": "hristina iakovleva"
+   },
+   {
+    "first": "Xenia",
+    "last": "Phillips",
+    "display": null,
+    "email": null,
+    "out": "filips ksenia"
+   },
+   {
+    "first": "Ксения",
+    "last": "Филиппова",
+    "display": null,
+    "email": null,
+    "out": "filipova ksenia"
+   },
+   {
+    "first": "Jürgen",
+    "last": "Weiß",
+    "display": null,
+    "email": null,
+    "out": "irgen vei"
+   },
+   {
+    "first": "Алёна",
+    "last": "Щукина",
+    "display": null,
+    "email": null,
+    "out": "alena schukina"
+   },
+   {
+    "first": "Игорь",
+    "last": "Объедков",
+    "display": null,
+    "email": null,
+    "out": "igor obedkov"
+   },
+   {
+    "first": "Anna-Maria",
+    "last": "Smith Jones",
+    "display": null,
+    "email": null,
+    "out": "anamaria iones smith"
+   },
+   {
+    "first": "ALINA",
+    "last": "SINICHKINA",
+    "display": null,
+    "email": null,
+    "out": "alina sinichkina"
+   },
+   {
+    "first": "李",
+    "last": "小龙",
+    "display": null,
+    "email": null,
+    "out": null
+   },
+   {
+    "first": "Ivan",
+    "last": "Petrov",
+    "display": "ivan.petrov",
+    "email": "ivan.petrov@example.org",
+    "out": "ivan petrov"
+   },
+   {
+    "first": null,
+    "last": null,
+    "display": "IVAN.PETROV",
+    "email": "Ivan.Petrov@example.org",
+    "out": null
+   },
+   {
+    "first": "Ольга",
+    "last": "Ольга",
+    "display": null,
+    "email": null,
+    "out": "olga olga"
+   }
+  ],
+  "fingerprint": [
+   {
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+    "accept_language": "ru-RU,ru;q=0.9,en;q=0.8",
+    "out": "a817f90203ace84d3058a7d8e27b511ac58cb6bf5657fb4c9378c2b43aee262a"
+   },
+   {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+    "accept_language": null,
+    "out": "d49589d73fd04f5402ecab83187075f4e8daa27bfcb64cae31c28e0942a689bc"
+   },
+   {
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+    "accept_language": "",
+    "out": "d49589d73fd04f5402ecab83187075f4e8daa27bfcb64cae31c28e0942a689bc"
+   },
+   {
+    "user_agent": "",
+    "accept_language": "en",
+    "out": null
+   },
+   {
+    "user_agent": null,
+    "accept_language": "en",
+    "out": null
+   },
+   {
+    "user_agent": "Тестовый агент/1.0 ✓",
+    "accept_language": "ru",
+    "out": "41bf11b3991c25c1deb286d4c50823dea5f1928f6477a10330cf7fc06399e220"
+   },
+   {
+    "user_agent": "UA|with|pipes",
+    "accept_language": "en|x",
+    "out": "ca443361f8e9911f1bdc423da7fbf023d2fb6767ad16f61537fa384d3396b5b2"
+   }
+  ],
+  "network": [
+   {
+    "ip": "203.0.114.7",
+    "is_global": true,
+    "network_key": "203.0.114",
+    "subnet_key": "203.0.114.0/24"
+   },
+   {
+    "ip": "203.0.114.250",
+    "is_global": true,
+    "network_key": "203.0.114",
+    "subnet_key": "203.0.114.0/24"
+   },
+   {
+    "ip": "8.8.8.8",
+    "is_global": true,
+    "network_key": "8.8.8",
+    "subnet_key": "8.8.8.0/24"
+   },
+   {
+    "ip": "10.1.2.3",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "10.1.2.0/24"
+   },
+   {
+    "ip": "100.64.1.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "100.64.1.0/24"
+   },
+   {
+    "ip": "100.127.255.254",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "100.127.255.0/24"
+   },
+   {
+    "ip": "100.128.0.1",
+    "is_global": true,
+    "network_key": "100.128.0",
+    "subnet_key": "100.128.0.0/24"
+   },
+   {
+    "ip": "100.63.255.255",
+    "is_global": true,
+    "network_key": "100.63.255",
+    "subnet_key": "100.63.255.0/24"
+   },
+   {
+    "ip": "192.168.1.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "192.168.1.0/24"
+   },
+   {
+    "ip": "172.16.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "172.16.0.0/24"
+   },
+   {
+    "ip": "172.31.255.255",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "172.31.255.0/24"
+   },
+   {
+    "ip": "172.32.0.1",
+    "is_global": true,
+    "network_key": "172.32.0",
+    "subnet_key": "172.32.0.0/24"
+   },
+   {
+    "ip": "127.0.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "127.0.0.0/24"
+   },
+   {
+    "ip": "169.254.169.254",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "169.254.169.0/24"
+   },
+   {
+    "ip": "224.0.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "224.0.0.0/24"
+   },
+   {
+    "ip": "239.255.255.255",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "239.255.255.0/24"
+   },
+   {
+    "ip": "240.0.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "240.0.0.0/24"
+   },
+   {
+    "ip": "255.255.255.255",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "255.255.255.0/24"
+   },
+   {
+    "ip": "0.1.2.3",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "0.1.2.0/24"
+   },
+   {
+    "ip": "192.0.0.9",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "192.0.0.0/24"
+   },
+   {
+    "ip": "192.0.2.10",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "192.0.2.0/24"
+   },
+   {
+    "ip": "198.18.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "198.18.0.0/24"
+   },
+   {
+    "ip": "198.20.0.1",
+    "is_global": true,
+    "network_key": "198.20.0",
+    "subnet_key": "198.20.0.0/24"
+   },
+   {
+    "ip": "198.51.100.7",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "198.51.100.0/24"
+   },
+   {
+    "ip": "203.0.113.9",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": "203.0.113.0/24"
+   },
+   {
+    "ip": "2001:db9::10",
+    "is_global": true,
+    "network_key": "2001:db9::10",
+    "subnet_key": null
+   },
+   {
+    "ip": "2001:db9:0:0:0:0:0:11",
+    "is_global": true,
+    "network_key": "2001:db9:0:0:0:0:0:11",
+    "subnet_key": null,
+    "guardpost": {
+     "network_key": "2001:db9::11",
+     "divergence": "ipv6-canonical-text"
+    }
+   },
+   {
+    "ip": "2001:4860:4860::8888",
+    "is_global": true,
+    "network_key": "2001:4860:4860::8888",
+    "subnet_key": null
+   },
+   {
+    "ip": "2001:db8::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "::",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "fe80::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "fc00::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "fd12:3456::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "ff02::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "100::1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "100:0:0:1::1",
+    "is_global": true,
+    "network_key": "100:0:0:1::1",
+    "subnet_key": null
+   },
+   {
+    "ip": "::ffff:203.0.114.7",
+    "is_global": true,
+    "network_key": "::ffff:203.0.114.7",
+    "subnet_key": null
+   },
+   {
+    "ip": "::ffff:10.0.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "::ffff:100.64.0.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "::ffff:cb00:7207",
+    "is_global": true,
+    "network_key": "::ffff:cb00:7207",
+    "subnet_key": null,
+    "guardpost": {
+     "network_key": "::ffff:203.0.114.7",
+     "divergence": "ipv6-canonical-text"
+    }
+   },
+   {
+    "ip": "64:ff9b::cb00:7207",
+    "is_global": true,
+    "network_key": "64:ff9b::cb00:7207",
+    "subnet_key": null
+   },
+   {
+    "ip": "64:ff9b::a00:1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "::203.0.114.7",
+    "is_global": true,
+    "network_key": "::203.0.114.7",
+    "subnet_key": null,
+    "guardpost": {
+     "network_key": "::cb00:7207",
+     "divergence": "ipv6-canonical-text"
+    }
+   },
+   {
+    "ip": "1.2.3.04",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "1.2.3",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "256.1.1.1",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "not-an-ip",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   },
+   {
+    "ip": "",
+    "is_global": false,
+    "network_key": null,
+    "subnet_key": null
+   }
+  ],
+  "normalize_email": [
+   {
+    "in": "A.B.C+tag@GMail.com",
+    "out": "abc@gmail.com",
+    "sha256": "48ddb93f0b30c475423fe177832912c5bcdce3cc72872f8051627967ef278e08"
+   },
+   {
+    "in": "a.b.c@googlemail.com",
+    "out": "abc@gmail.com",
+    "sha256": "48ddb93f0b30c475423fe177832912c5bcdce3cc72872f8051627967ef278e08"
+   },
+   {
+    "in": "First.Last+x@outlook.com",
+    "out": "first.last@outlook.com",
+    "sha256": "a0abd3fe9215d746b3b41b945557993da5fc81d11aec8295abbe80b4c88461b5"
+   },
+   {
+    "in": "first.last+x@hotmail.com",
+    "out": "first.last@hotmail.com",
+    "sha256": "59b74c0ef342df7097fbd66cd4952d7c5487b7df115b8f33e80c42f27e503b69"
+   },
+   {
+    "in": "user-tag-2@yahoo.com",
+    "out": "user@yahoo.com",
+    "sha256": "7b5a587e61809de701ccd04fc88345d861fe16a423b8109eadb049fbc03be54c"
+   },
+   {
+    "in": "user+tag@yahoo.com",
+    "out": "user+tag@yahoo.com",
+    "sha256": "03045fc55b0c0b9d6da204137b95651ce87fabae45095c5bd6a95bdf5e696e38"
+   },
+   {
+    "in": "user+1@bk.ru",
+    "out": "user@mail.ru",
+    "sha256": "2a494d61ed79bf781beb19c98cb39306451485ffad891b28ffc266a77b0a5723"
+   },
+   {
+    "in": "user@list.ru",
+    "out": "user@mail.ru",
+    "sha256": "2a494d61ed79bf781beb19c98cb39306451485ffad891b28ffc266a77b0a5723"
+   },
+   {
+    "in": "user@inbox.ru",
+    "out": "user@mail.ru",
+    "sha256": "2a494d61ed79bf781beb19c98cb39306451485ffad891b28ffc266a77b0a5723"
+   },
+   {
+    "in": "user+a@ya.ru",
+    "out": "user@yandex.ru",
+    "sha256": "b3677257931c577806bae08f8569e1cb2093194b204f8cae52fa4d7ba1d5d87c"
+   },
+   {
+    "in": "user@yandex.by",
+    "out": "user@yandex.ru",
+    "sha256": "b3677257931c577806bae08f8569e1cb2093194b204f8cae52fa4d7ba1d5d87c"
+   },
+   {
+    "in": "user@yandex.com",
+    "out": "user@yandex.ru",
+    "sha256": "b3677257931c577806bae08f8569e1cb2093194b204f8cae52fa4d7ba1d5d87c"
+   },
+   {
+    "in": "user+a+b@example.org",
+    "out": "user@example.org",
+    "sha256": "d159ef624ed86697b4f1f3ff086aacddfdfd42d463a8003694f775e1e2d95e2c"
+   },
+   {
+    "in": "  Mixed.Case+x@Example.ORG  ",
+    "out": "mixed.case@example.org",
+    "sha256": "5497612350fdf6499b271f3a6d0976055dbf5f095cac63a250efb4347ef4543f"
+   },
+   {
+    "in": "noatsign",
+    "out": "noatsign",
+    "sha256": "71ee04b6c96240ca4755e2af9014be9cd700516b6c610e0873502f341fcdf78d"
+   },
+   {
+    "in": "",
+    "out": "",
+    "sha256": null
+   },
+   {
+    "in": "a@b@c.example",
+    "out": "a@b@c.example",
+    "sha256": "649b90e7185ffec48ffcf13c2a2b187d9c223ce2dab77a7c8285f20eee750988"
+   }
+  ],
+  "email_flags": {
+   "dns": {
+    "mx": {
+     "corp-example.com": [
+      "mx.corp-example.com"
+     ],
+     "nomx-example.com": [],
+     "dnserror-example.com": "error",
+     "tmp-example.net": [
+      "mx1.mail.tm"
+     ],
+     "selfhost-example.net": [
+      "mail.selfhost-example.net"
+     ],
+     "cf-example.net": [
+      "route1.mx.cloudflare.net"
+     ],
+     "nullmx-example.com": [
+      "."
+     ],
+     "ukr-example.ua": [
+      "mx.ukr-example.ua"
+     ]
+    },
+    "a": {
+     "selfhost-example.net": [
+      "198.51.200.1"
+     ],
+     "mx.corp-example.com": [
+      "192.0.2.1"
+     ],
+     "corp-example.com": [
+      "192.0.2.2"
+     ],
+     "mx.ukr-example.ua": [
+      "192.0.2.3"
+     ],
+     "ukr-example.ua": [
+      "192.0.2.4"
+     ]
+    }
+   },
+   "cases": [
+    {
+     "email": "user@gmail.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user@mailinator.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "disposable_domain",
+      "suspicious_domain_keyword"
+     ]
+    },
+    {
+     "email": "user@temp-mail-go.info",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "disposable_domain",
+      "suspicious_domain_keyword"
+     ]
+    },
+    {
+     "email": "user@my-throwaway.example",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "suspicious_domain_keyword"
+     ]
+    },
+    {
+     "email": "user@12345mail.xyz",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "numeric_domain"
+     ]
+    },
+    {
+     "email": "user@ab.io",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "very_short_domain"
+     ]
+    },
+    {
+     "email": "a.l.i.n.a@gmail.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "dot_noise_local"
+     ]
+    },
+    {
+     "email": "ali.na.sin@gmail.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "a.lina.sinichkina.x@gmail.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "a.b.c@googlemail.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "admin@corp-example.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "role_account"
+     ]
+    },
+    {
+     "email": "support@gmail.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "role_account"
+     ]
+    },
+    {
+     "email": "dev@corp-example.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user+a+b@corp-example.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "multiple_aliases"
+     ]
+    },
+    {
+     "email": "user+a@corp-example.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user@nomx-example.com",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "no_mx_records"
+     ]
+    },
+    {
+     "email": "user@dnserror-example.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user@tmp-example.net",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "disposable_mx_infrastructure"
+     ]
+    },
+    {
+     "email": "user@selfhost-example.net",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "disposable_mx_infrastructure"
+     ]
+    },
+    {
+     "email": "user@cf-example.net",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "disposable_mx_infrastructure"
+     ]
+    },
+    {
+     "email": "user@nullmx-example.com",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user@i.ua",
+     "region": "ru",
+     "suspicious": true,
+     "reasons": [
+      "ua_domain"
+     ]
+    },
+    {
+     "email": "user@i.ua",
+     "region": "global",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "user@ukr-example.ua",
+     "region": "ru",
+     "suspicious": true,
+     "reasons": [
+      "ua_domain"
+     ]
+    },
+    {
+     "email": "user@yandex.ru",
+     "region": "ru",
+     "suspicious": false,
+     "reasons": []
+    },
+    {
+     "email": "noatsign",
+     "region": "global",
+     "suspicious": true,
+     "reasons": [
+      "invalid_format"
+     ]
+    }
+   ]
+  },
+  "email_gate": [
+   {
+    "email": "bad",
+    "block_code": "EMAIL_INVALID_FORMAT",
+    "suggestion": null
+   },
+   {
+    "email": "a@b",
+    "block_code": "EMAIL_INVALID_FORMAT",
+    "suggestion": null
+   },
+   {
+    "email": "user@gmail.con",
+    "block_code": "EMAIL_TYPO_SUSPECTED",
+    "suggestion": "gmail.com"
+   },
+   {
+    "email": "user@gmail.co",
+    "block_code": "EMAIL_TYPO_SUSPECTED",
+    "suggestion": "gmail.com"
+   },
+   {
+    "email": "user@501gmail.com",
+    "block_code": "EMAIL_TYPO_SUSPECTED",
+    "suggestion": "gmail.com"
+   },
+   {
+    "email": "user@1yandex.ru",
+    "block_code": "EMAIL_TYPO_SUSPECTED",
+    "suggestion": "yandex.ru"
+   },
+   {
+    "email": "user@gmail.com",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@example.com",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@sub.example",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@site.test",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@nomx-example.com",
+    "block_code": "EMAIL_DOMAIN_UNDELIVERABLE",
+    "suggestion": null
+   },
+   {
+    "email": "user@dnserror-example.com",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@nullmx-example.com",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@corp-example.com",
+    "block_code": null,
+    "suggestion": null
+   },
+   {
+    "email": "user@gmail.com\n",
+    "block_code": "EMAIL_INVALID_FORMAT",
+    "suggestion": null
+   },
+   {
+    "email": "us er@gmail.com",
+    "block_code": "EMAIL_INVALID_FORMAT",
+    "suggestion": null
+   },
+   {
+    "email": "user@mail.ry",
+    "block_code": "EMAIL_TYPO_SUSPECTED",
+    "suggestion": "mail.ru"
+   },
+   {
+    "email": "user@factory.bot",
+    "block_code": null,
+    "suggestion": null
+   }
+  ],
+  "ip_status": [
+   {
+    "key": "203.0.114.7",
+    "total": 1,
+    "suspicious": 0,
+    "first_days_ago": 0,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "clean",
+    "expected_reason": null
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 15,
+    "suspicious": 0,
+    "first_days_ago": 3,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "graylisted",
+    "expected_reason": "15 total registrations (elevated volume)"
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 15,
+    "suspicious": 0,
+    "first_days_ago": 8,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "clean",
+    "expected_reason": null
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 14,
+    "suspicious": 5,
+    "first_days_ago": 40,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "graylisted",
+    "expected_reason": "5 suspicious registrations"
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 30,
+    "suspicious": 0,
+    "first_days_ago": 10,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "blacklisted",
+    "expected_reason": "30 total registrations (high volume)"
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 30,
+    "suspicious": 0,
+    "first_days_ago": 31,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "clean",
+    "expected_reason": null
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 9,
+    "suspicious": 8,
+    "first_days_ago": 1,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "blacklisted",
+    "expected_reason": "8 suspicious registrations"
+   },
+   {
+    "key": "203.0.114.7",
+    "total": 31,
+    "suspicious": 5,
+    "first_days_ago": 2,
+    "status": "blacklisted",
+    "status_reason": "30 total registrations (high volume)",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "blacklisted",
+    "expected_reason": "30 total registrations (high volume)"
+   },
+   {
+    "key": "203.0.114.0/24",
+    "total": 25,
+    "suspicious": 0,
+    "first_days_ago": 2,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "graylisted",
+    "expected_reason": "25 total registrations (elevated volume)"
+   },
+   {
+    "key": "203.0.114.0/24",
+    "total": 24,
+    "suspicious": 7,
+    "first_days_ago": 2,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "clean",
+    "expected_reason": null
+   },
+   {
+    "key": "203.0.114.0/24",
+    "total": 24,
+    "suspicious": 8,
+    "first_days_ago": 2,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "graylisted",
+    "expected_reason": "8 suspicious registrations"
+   },
+   {
+    "key": "203.0.114.0/24",
+    "total": 50,
+    "suspicious": 0,
+    "first_days_ago": 20,
+    "status": "clean",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "blacklisted",
+    "expected_reason": "50 total registrations (high volume)"
+   },
+   {
+    "key": "203.0.114.0/24",
+    "total": 60,
+    "suspicious": 15,
+    "first_days_ago": 60,
+    "status": "graylisted",
+    "status_reason": "8 suspicious registrations",
+    "now": "2026-10-25T12:00:00.000Z",
+    "expected_status": "blacklisted",
+    "expected_reason": "15 suspicious registrations"
+   }
+  ]
+ },
+ "scenarios": [
+  {
+   "name": "alina-sinichkina",
+   "description": "One person, two Yandex OAuth accounts two hours apart from one IP and one browser, the same name in Latin and Cyrillic. The second is a same_device match: degraded, and its referral code retracted. Device repeat waits for a third account, so only same-person catches it.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.first.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Alina",
+       "last": "Sinichkina"
+      },
+      "account": {
+       "id": "acc1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.second.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Алина",
+       "last": "Синичкина"
+      },
+      "account": {
+       "id": "acc2"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "same_device:acc1"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts",
+       "retract_referral_code"
+      ],
+      "evidence": {
+       "same_device:acc1": {
+        "account_id": "acc1"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "alina-sinichkina-same-24-other-ua",
+   "description": "The same name from another address in the same /24 with another browser: no device match, but the name key (transliterated, order-free) plus the network is a same_name match.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.first.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Alina",
+       "last": "Sinichkina"
+      },
+      "account": {
+       "id": "acc1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.second.example@yandex.ru",
+      "ip": "203.0.114.99",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Синичкина",
+       "last": "Алина"
+      },
+      "account": {
+       "id": "acc2"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "same_name:acc1"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts",
+       "retract_referral_code"
+      ],
+      "evidence": {
+       "same_name:acc1": {
+        "account_id": "acc1",
+        "matched_on": [
+         "network"
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "alina-sinichkina-31-days",
+   "description": "The same IP, browser and name 31 days later: outside the 7-day device and 30-day name windows, so the second account is clean.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.first.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Alina",
+       "last": "Sinichkina"
+      },
+      "account": {
+       "id": "acc1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-10-02T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.second.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Алина",
+       "last": "Синичкина"
+      },
+      "account": {
+       "id": "acc2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "alina-sinichkina-name-only",
+   "description": "The same name from another network and another browser: a name alone is never enough.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.first.example@yandex.ru",
+      "ip": "203.0.114.7",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Alina",
+       "last": "Sinichkina"
+      },
+      "account": {
+       "id": "acc1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "yandex"
+      },
+      "email": "alina.second.example@yandex.ru",
+      "ip": "198.51.201.40",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "name": {
+       "first": "Алина",
+       "last": "Синичкина"
+      },
+      "account": {
+       "id": "acc2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "dotted-gmail-24-farm",
+   "description": "Email signups paced under every IP and /24 threshold: one browser, one /24, a new address each time. The third account from the device on the /24 within a week is device_repeat; a dot-noise address is flagged by its email instead (device repeat only runs on a clean signup), and still counts as a prior account for the next one.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "fa.rmuser1@gmail.com",
+      "ip": "203.0.115.10",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "farm1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "farm.user2@gmail.com",
+      "ip": "203.0.115.11",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "farm2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "farmus.er3@gmail.com",
+      "ip": "203.0.115.12",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "farm3"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "device_repeat:2"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T13:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "f.a.r.m.u.s.e.r4@gmail.com",
+      "ip": "203.0.115.13",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "farm4"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "dot_noise_local"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T14:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "farmuser5@gmail.com",
+      "ip": "203.0.115.14",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "farm5"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "device_repeat:4"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "referral-same-ip",
+   "description": "Four referred signups from one IP within 24 hours, each with its own referrer and browser. The fourth referral is attributed but flagged same_ip_4_in_24h (no referee bonus); the signups themselves stay clean.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:01:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referrer1@gmail.com",
+      "ip": "198.51.202.1",
+      "device": {
+       "user_agent": "UA-referrer-1"
+      },
+      "account": {
+       "id": "r1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:02:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referrer2@gmail.com",
+      "ip": "198.51.202.2",
+      "device": {
+       "user_agent": "UA-referrer-2"
+      },
+      "account": {
+       "id": "r2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:03:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referrer3@gmail.com",
+      "ip": "198.51.202.3",
+      "device": {
+       "user_agent": "UA-referrer-3"
+      },
+      "account": {
+       "id": "r3"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:04:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referrer4@gmail.com",
+      "ip": "198.51.202.4",
+      "device": {
+       "user_agent": "UA-referrer-4"
+      },
+      "account": {
+       "id": "r4"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:01:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referred.a@gmail.com",
+      "ip": "203.0.115.20",
+      "device": {
+       "user_agent": "UA-referred-a"
+      },
+      "referral": {
+       "referrer_account_id": "r1"
+      },
+      "account": {
+       "id": "ref-a"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:02:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referred.b@gmail.com",
+      "ip": "203.0.115.20",
+      "device": {
+       "user_agent": "UA-referred-b"
+      },
+      "referral": {
+       "referrer_account_id": "r2"
+      },
+      "account": {
+       "id": "ref-b"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:03:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referred.c@gmail.com",
+      "ip": "203.0.115.20",
+      "device": {
+       "user_agent": "UA-referred-c"
+      },
+      "referral": {
+       "referrer_account_id": "r3"
+      },
+      "account": {
+       "id": "ref-c"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:04:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "referred.d@gmail.com",
+      "ip": "203.0.115.20",
+      "device": {
+       "user_agent": "UA-referred-d"
+      },
+      "referral": {
+       "referrer_account_id": "r4"
+      },
+      "account": {
+       "id": "ref-d"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": true,
+       "reason": "same_ip_4_in_24h"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "referrer-velocity",
+   "description": "One referrer, four referrals within 24 hours from distinct addresses and browsers: the fourth is flagged referrer_velocity_24h. Flagged referrals do not count towards later velocity.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "busy.referrer@gmail.com",
+      "ip": "198.51.203.1",
+      "device": {
+       "user_agent": "UA-busy"
+      },
+      "account": {
+       "id": "busy"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "day.friend1@gmail.com",
+      "ip": "198.51.204.1",
+      "device": {
+       "user_agent": "UA-day-1"
+      },
+      "referral": {
+       "referrer_account_id": "busy"
+      },
+      "account": {
+       "id": "day1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "day.friend2@gmail.com",
+      "ip": "198.51.204.2",
+      "device": {
+       "user_agent": "UA-day-2"
+      },
+      "referral": {
+       "referrer_account_id": "busy"
+      },
+      "account": {
+       "id": "day2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T13:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "day.friend3@gmail.com",
+      "ip": "198.51.204.3",
+      "device": {
+       "user_agent": "UA-day-3"
+      },
+      "referral": {
+       "referrer_account_id": "busy"
+      },
+      "account": {
+       "id": "day3"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T14:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "day.friend4@gmail.com",
+      "ip": "198.51.204.4",
+      "device": {
+       "user_agent": "UA-day-4"
+      },
+      "referral": {
+       "referrer_account_id": "busy"
+      },
+      "account": {
+       "id": "day4"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": true,
+       "reason": "referrer_velocity_24h (3 referrals in 24h)"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "referrer-velocity-7d",
+   "description": "Two referrals a day for five days stays under the 24-hour cap; the eleventh referral in a week is flagged referrer_velocity_7d.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "weekly.referrer@gmail.com",
+      "ip": "198.51.203.2",
+      "device": {
+       "user_agent": "UA-weekly"
+      },
+      "account": {
+       "id": "weekly"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend1@gmail.com",
+      "ip": "198.51.205.1",
+      "device": {
+       "user_agent": "UA-week-1"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend2@gmail.com",
+      "ip": "198.51.205.2",
+      "device": {
+       "user_agent": "UA-week-2"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-02T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend3@gmail.com",
+      "ip": "198.51.205.3",
+      "device": {
+       "user_agent": "UA-week-3"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk3"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-02T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend4@gmail.com",
+      "ip": "198.51.205.4",
+      "device": {
+       "user_agent": "UA-week-4"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk4"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-03T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend5@gmail.com",
+      "ip": "198.51.205.5",
+      "device": {
+       "user_agent": "UA-week-5"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk5"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-03T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend6@gmail.com",
+      "ip": "198.51.205.6",
+      "device": {
+       "user_agent": "UA-week-6"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk6"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-04T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend7@gmail.com",
+      "ip": "198.51.205.7",
+      "device": {
+       "user_agent": "UA-week-7"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk7"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-04T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend8@gmail.com",
+      "ip": "198.51.205.8",
+      "device": {
+       "user_agent": "UA-week-8"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk8"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-05T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend9@gmail.com",
+      "ip": "198.51.205.9",
+      "device": {
+       "user_agent": "UA-week-9"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk9"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-05T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend10@gmail.com",
+      "ip": "198.51.205.10",
+      "device": {
+       "user_agent": "UA-week-10"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk10"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": false,
+       "reason": null
+      }
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-06T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "week.friend11@gmail.com",
+      "ip": "198.51.205.11",
+      "device": {
+       "user_agent": "UA-week-11"
+      },
+      "referral": {
+       "referrer_account_id": "weekly"
+      },
+      "account": {
+       "id": "wk11"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [],
+      "referral": {
+       "attribute": true,
+       "suspicious": true,
+       "reason": "referrer_velocity_7d (10 referrals in 7d)"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "oauth-returning-skips-device",
+   "description": "Two accounts from one browser on one /24, then a returning user on the same device: OAuth skips the device and same-person rules for a returning user, the email path does not.",
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "first.device@gmail.com",
+      "ip": "203.0.114.40",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "dev1"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T11:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "second.device@gmail.com",
+      "ip": "203.0.114.41",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "dev2"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T12:00:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "google",
+       "returning_user": true
+      },
+      "email": "returning.device@gmail.com",
+      "ip": "203.0.114.40",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "dev3"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution"
+      ]
+     },
+     "note": "OAuth returning user: device repeat and same person are skipped (oauth.ts)"
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T13:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email",
+       "returning_user": true
+      },
+      "email": "returning.again@gmail.com",
+      "ip": "203.0.114.40",
+      "device": {
+       "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+       "accept_language": "ru-RU,ru;q=0.9,en;q=0.8"
+      },
+      "account": {
+       "id": "dev4"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "device_repeat:3",
+       "same_device:dev1"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts",
+       "retract_referral_code"
+      ]
+     },
+     "note": "Email returning user: register.ts runs both rules regardless of returning"
+    }
+   ]
+  },
+  {
+   "name": "email-gates-and-lifecycle",
+   "description": "The email-path gates (typo, MX, alias collision) refuse; OAuth skips format, typo and MX. A deleted account frees its address; a permanent email ban blocks it on every path.",
+   "dns": {
+    "mx": {
+     "nomx-example.com": []
+    }
+   },
+   "steps": [
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "someone@gmail.con",
+      "ip": "198.51.206.1",
+      "account": {
+       "id": "g0"
+      }
+     },
+     "expect": {
+      "decision": "block",
+      "block_code": "EMAIL_TYPO_SUSPECTED",
+      "reasons": [
+       "typo_domain:map"
+      ],
+      "actions": [],
+      "suggestion": "gmail.com"
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:01:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "someone@nomx-example.com",
+      "ip": "198.51.206.1",
+      "account": {
+       "id": "g1"
+      }
+     },
+     "expect": {
+      "decision": "block",
+      "block_code": "EMAIL_DOMAIN_UNDELIVERABLE",
+      "reasons": [
+       "undeliverable_domain"
+      ],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:02:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "someone@example.com",
+      "ip": "198.51.206.1",
+      "account": {
+       "id": "g2"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "no_mx_records"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     },
+     "note": "Reserved domains skip the MX gate but not the no_mx_records flag"
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:03:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "jane.doe@gmail.com",
+      "ip": "198.51.206.2",
+      "account": {
+       "id": "g3"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:04:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "j.a.n.e.doe+x@googlemail.com",
+      "ip": "198.51.206.3",
+      "account": {
+       "id": "g4"
+      }
+     },
+     "expect": {
+      "decision": "block",
+      "block_code": "EMAIL_ALIAS_EXISTS",
+      "reasons": [
+       "dot_noise_local",
+       "alias_collision:g3"
+      ],
+      "actions": []
+     }
+    },
+    {
+     "op": "event",
+     "at": "2026-09-01T10:05:00Z",
+     "account_id": "g3",
+     "event": {
+      "type": "deleted"
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:06:00Z",
+     "request": {
+      "signup": {
+       "method": "email",
+       "returning_user": true
+      },
+      "email": "jane.doe@gmail.com",
+      "ip": "198.51.206.4",
+      "account": {
+       "id": "g5"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution"
+      ]
+     },
+     "note": "deleted nulls the email key: no alias collision; the app says the user is returning"
+    },
+    {
+     "op": "event",
+     "at": "2026-09-01T10:07:00Z",
+     "account_id": "g5",
+     "event": {
+      "type": "banned",
+      "permanent_email_ban": true,
+      "reason": "abuse"
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:08:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "google"
+      },
+      "email": "Jane.Doe@gmail.com",
+      "ip": "198.51.206.5",
+      "account": {
+       "id": "g6"
+      }
+     },
+     "expect": {
+      "decision": "block",
+      "block_code": "EMAIL_BANNED",
+      "reasons": [
+       "banned_email"
+      ],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:09:00Z",
+     "request": {
+      "signup": {
+       "method": "oauth",
+       "oauth_provider": "google"
+      },
+      "email": "other.person@gmail.con",
+      "ip": "198.51.206.6",
+      "account": {
+       "id": "g7"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "no_mx_records"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     },
+     "note": "OAuth skips the format, typo and MX gates; the suspicion flags still run"
+    }
+   ]
+  },
+  {
+   "name": "ip-reputation",
+   "description": "Shared IP and /24 reputation: graylisted and subnet_burst degrade only a signup nothing else flagged; blacklisted refuses.",
+   "steps": [
+    {
+     "op": "ip_reputation",
+     "rows": [
+      {
+       "ip_address": "198.51.207.5",
+       "total_registrations": 6,
+       "suspicious_registrations": 5,
+       "first_registration_at": "2026-08-29T10:00:00Z",
+       "last_registration_at": "2026-09-01T09:00:00Z",
+       "status": "graylisted",
+       "status_reason": "5 suspicious registrations"
+      },
+      {
+       "ip_address": "198.51.207.8",
+       "total_registrations": 9,
+       "suspicious_registrations": 8,
+       "first_registration_at": "2026-08-29T10:00:00Z",
+       "last_registration_at": "2026-09-01T09:00:00Z",
+       "status": "blacklisted",
+       "status_reason": "8 suspicious registrations"
+      },
+      {
+       "ip_address": "198.51.208.0/24",
+       "total_registrations": 26,
+       "suspicious_registrations": 2,
+       "first_registration_at": "2026-08-30T10:00:00Z",
+       "last_registration_at": "2026-09-01T09:00:00Z",
+       "status": "graylisted",
+       "status_reason": "26 total registrations (elevated volume)"
+      }
+     ]
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:00:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "clean.person@gmail.com",
+      "ip": "198.51.207.5",
+      "account": {
+       "id": "ip1"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "graylisted_ip:5 suspicious registrations"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:01:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "admin@gmail.com",
+      "ip": "198.51.207.5",
+      "account": {
+       "id": "ip2"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "role_account"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     },
+     "note": "graylisted_ip is only added when nothing else flagged the signup"
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:02:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "blocked.person@gmail.com",
+      "ip": "198.51.207.8",
+      "account": {
+       "id": "ip3"
+      }
+     },
+     "expect": {
+      "decision": "block",
+      "block_code": "IP_BLACKLISTED",
+      "reasons": [
+       "blacklisted_ip:8 suspicious registrations"
+      ],
+      "actions": []
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:03:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "pool.person@gmail.com",
+      "ip": "198.51.208.77",
+      "account": {
+       "id": "ip4"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "subnet_burst:198.51.208.0/24"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     }
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:04:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "info@gmail.com",
+      "ip": "198.51.208.78",
+      "account": {
+       "id": "ip5"
+      }
+     },
+     "expect": {
+      "decision": "degrade",
+      "reasons": [
+       "role_account"
+      ],
+      "actions": [
+       "no_welcome_credits",
+       "no_referral_attribution",
+       "no_referral_payouts"
+      ]
+     },
+     "note": "subnet_burst is only added when the IP is clean and nothing else flagged the signup"
+    },
+    {
+     "op": "check",
+     "at": "2026-09-01T10:05:00Z",
+     "request": {
+      "signup": {
+       "method": "email"
+      },
+      "email": "v6.person@gmail.com",
+      "ip": "2001:db9::40",
+      "account": {
+       "id": "ip6"
+      }
+     },
+     "expect": {
+      "decision": "allow",
+      "reasons": [],
+      "actions": []
+     }
+    }
+   ]
+  }
+ ],
+ "known_divergences": [
+  {
+   "id": "ipv6-canonical-text",
+   "description": "Guardpost canonicalizes an address (RFC 5952 IPv6, IPv4-mapped/compatible hex forms) before keying it; v2 compares the raw strings. The same address written two ways matches in Guardpost only. Factory receives canonical addresses from its proxy, so this is latent."
+  },
+  {
+   "id": "typo-extra-sources",
+   "description": "Guardpost's typo gate also matches its mistyped-TLD rule (typo_domain:tld, e.g. hotmail.con) and its own extra map entries. v2 sends such an address to the MX gate, where it usually fails as EMAIL_DOMAIN_UNDELIVERABLE (block_mismatch on the code only)."
+  },
+  {
+   "id": "guardpost-weak-signals",
+   "description": "homograph_domain, null_mx, role_account_extended, gibberish_domain and relay_domain exist only in Guardpost. They are weak (score only) and never change the decision, but they appear in reasons (reasons_differ)."
+  },
+  {
+   "id": "list-superset",
+   "description": "Guardpost's disposable domains, MX hosts, keywords and typo map are a superset of Factory's (tests/test_factory_superset.py): a Guardpost-only entry flags an address v2 passes (gp_stricter)."
+  },
+  {
+   "id": "returning-user-from-client",
+   "description": "Guardpost cannot recognise a returning user (a deleted account's email key is nulled); it trusts signup.returning_user from the app."
+  },
+  {
+   "id": "referrer-resolution",
+   "description": "v2 resolves the referral code itself (unknown and promo codes, retracted codes); Guardpost receives referrer_account_id and knows a retraction only through referral_code_retracted events."
+  },
+  {
+   "id": "blocked-signup-committed",
+   "description": "In commit (shadow) mode Guardpost records an account it would have blocked, because the app created it, and counts it as suspicious on the shared IP counters; v2 writes nothing for a refused signup. Only reachable when the decisions already differ."
+  },
+  {
+   "id": "replay-time-bounds",
+   "description": "Guardpost bounds every lookup by occurred_at (windows [t - w, t), alias collisions with accounts created before t), so a replay sees the ledger as it was. v2 reads the live table at wall-clock time; identical for real-time signups."
+  },
+  {
+   "id": "dns-cache",
+   "description": "v2 caches MX answers for 6 h; Guardpost's v2 check asks its resolver every time (the default dnspython path caches for the process lifetime)."
+  }
+ ]
+}

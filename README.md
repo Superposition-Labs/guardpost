@@ -145,7 +145,38 @@ carries `suggested_domain` and `typo_source` (`map`, `tld` or `numeric`).
 | `GET`    | `/api/v1/stats`           | Aggregate statistics                 |
 | `GET`    | `/api/v1/health`          | Health check                         |
 
-OpenAPI docs at `/docs` when the server is running.
+OpenAPI docs at `/docs` when the server is running; the committed contract is
+[`openapi/guardpost.json`](openapi/guardpost.json) (CI fails when it drifts:
+`python scripts/export_openapi.py`).
+
+### API v2: server-side signup rules and the account ledger
+
+v2 runs Factory v2's signup rules on the server, in the same order, against a
+per-tenant pseudonymous ledger (needs SQLite and `GUARDPOST_SECRET`; otherwise
+every `/api/v2` route answers 503).
+
+| Method          | Path                                   | Scope       | Description |
+| --------------- | -------------------------------------- | ----------- | ----------- |
+| `POST`          | `/api/v2/check`                        | `check`     | Evaluate a signup (`mode: evaluate`, kept 1 h) or evaluate and record it (`mode: commit`) |
+| `POST`          | `/api/v2/accounts`                     | `check`     | Commit an evaluated check: `{check_id, account_id}` |
+| `GET`           | `/api/v2/accounts/{id}`                | `dashboard` | One account's ledger state |
+| `POST`          | `/api/v2/accounts/{id}/events`         | `lifecycle` | `created`, `deleted`, `banned`, `unbanned`, `paid`, `flagged`, `unflagged`, `referral_code_retracted`, `referral_code_restored` |
+| `PUT`/`DELETE`  | `/api/v2/bans`                         | `lifecycle` | Ban or unban an address (`email` or `email_sha256`) |
+| `PUT`/`DELETE`  | `/api/v2/ip-overrides/{ip_or_cidr}`    | `lifecycle` | Per-tenant `allow`/`block` for an address or IPv4 /24 |
+| `POST`          | `/api/v2/import/{accounts,bans,referrals}` | `backfill` | Upsert up to 1,000 rows |
+| `POST`          | `/api/v2/admin/ip-reputation/import`   | `admin`     | Merge rows into the shared IP table |
+| `GET`           | `/api/v2/stats`                        | `dashboard` | Decisions, reason histogram, degraded-then-paid, latency |
+
+A check returns `decision` (`allow`, `degrade`, `block`), the reasons in
+Factory's `kind:detail` form with their tier and evidence (the tenant's own
+account ids, never an email), `block_code` (Factory v2's 400s:
+`EMAIL_TYPO_SUSPECTED`, `EMAIL_DOMAIN_UNDELIVERABLE`, `EMAIL_BANNED`,
+`EMAIL_ALIAS_EXISTS`, `IP_BLACKLISTED`, ...), `actions` (`no_welcome_credits`,
+`no_referral_attribution`, `no_referral_payouts`, `retract_referral_code`) and
+the referral verdict. Send `Idempotency-Key` (or `idempotency_key`): a replay
+returns the identical result for 24 hours. `occurred_at` must be within 15
+minutes of the server clock unless the key has the `backfill` scope.
+[`parity/vectors.json`](parity/vectors.json) pins the rules against Factory v2.
 
 ## Configuration
 
@@ -168,7 +199,9 @@ gp = Guardpost(
 | `GUARDPOST_API_KEY`                | The legacy single API key (key id `legacy`, scopes `legacy,check,dashboard`) |
 | `GUARDPOST_LEGACY_TENANT`          | Tenant the legacy key and pre-0.3 data belong to (default `default`) |
 | `GUARDPOST_ALLOW_OPEN`             | `1` = serve unauthenticated when no API key exists at all (development only; otherwise boot is refused) |
-| `GUARDPOST_SECRET`                 | Instance secret for per-tenant keyed hashes. Back it up separately; if unset a generated one is kept in the database |
+| `GUARDPOST_SECRET`                 | Instance secret for per-tenant keyed hashes. Back it up separately. Required by `/api/v2`; when it is first set, bans are re-keyed to HMACs and the database is tied to it (a different or missing secret then refuses to boot). Unset: a generated one is kept in the database and v2 is disabled |
+| `GUARDPOST_ALLOW_DB_SECRET`        | `1` = let `/api/v2` run on the generated database secret (tests and development only) |
+| `GUARDPOST_PURGE_INTERVAL`         | Seconds between in-process retention purges of the v2 ledger (default `3600`; `0` = off, run `guardpost purge`) |
 | `GUARDPOST_STORAGE`                | `sqlite` or `redis` (default: `redis` when `GUARDPOST_REDIS_URL` is set, else `sqlite`) |
 | `GUARDPOST_MULTI_TENANT`           | `1` = refuse to boot on a backend without tenancy instead of running single-tenant |
 | `GUARDPOST_DB_PATH`                | SQLite database path                   |
@@ -206,14 +239,18 @@ guardpost key revoke <key-id>
 guardpost tenant config-set factory email.reason_tiers.typo_domain=hard rate_limit_per_minute=600
 guardpost tenant show factory                       # effective config + keys (never the secrets)
 guardpost ip whitelist --global 203.0.113.0/24      # shared by every tenant
+guardpost ip-reputation import rows.jsonl           # merge Factory v2 ip_reputation rows (shared)
+guardpost purge                                     # retention now (also hourly in process)
 ```
 
 - Keys look like `gpk_<id>_<secret>`. Only their SHA-256 is stored, and
   `key create` / `key rotate` print the key once, alone on stdout. Send it as
   `X-Api-Key`, `Authorization: Bearer`, or the dashboard's Basic password.
-- Scopes: `check` (evaluation routes), `lifecycle` (bans, `/ip/record`),
-  `dashboard` (stats, timeline, pattern report, dashboard). The legacy key's
-  `legacy` scope covers every v1 route.
+- Scopes: `check` (evaluation routes), `lifecycle` (bans, `/ip/record`, v2
+  events and overrides), `dashboard` (stats, timeline, pattern report,
+  dashboard), `backfill` (v2 imports and old `occurred_at`), `admin` (the
+  shared IP import). The legacy key's `legacy` scope covers every v1 route but
+  grants nothing on v2, where only its explicit `check` and `dashboard` count.
 - `GUARDPOST_API_KEY` keeps working unchanged for v1 clients: each boot hashes
   it into `api_keys` as key `legacy` for `GUARDPOST_LEGACY_TENANT`, and revokes
   that row when the variable is unset.
@@ -222,10 +259,14 @@ guardpost ip whitelist --global 203.0.113.0/24      # shared by every tenant
   `region`, `region_rules.ua_domain` (soft-flag every `*.ua` address, trusted
   or not; on by default for region `ru`), `email.trusted_extra_domains`,
   `email.reason_tiers`, `rate_limit_per_minute` (one bucket for all the
-  tenant's keys), `retention.signals_days` (35), and `device_repeat`,
-  `same_person`, `referral` (stored for the v2 rules).
+  tenant's keys), `retention.signals_days` (35), `retention.events_days`
+  (400), and the v2 rule windows `device_repeat`, `same_person`, `referral`.
 - Privacy: no email is written to disk. Per-tenant activity is kept as events
   holding an HMAC of the IP under a tenant key derived from `GUARDPOST_SECRET`.
+  The v2 ledger stores only HMACs of the normalized email, device fingerprint,
+  IP, /24 and name key; plaintext IPs live only in the shared reputation
+  table, which has no account link. Retention: ledger signals 35 days, checks
+  24 hours, events 400 days, clean idle IP rows 90 days.
   Pattern analysis runs on an in-memory window, which starts empty after a
   restart.
 - Tenancy needs the SQLite backend. On Redis Guardpost runs single-tenant (one

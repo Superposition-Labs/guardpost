@@ -41,8 +41,12 @@ async def get_tenant_context(request: Request) -> TenantContext:
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-def require_scope(scope: str, *, dashboard: bool = False):
-    """Dependency: a TenantContext whose key holds ``scope`` (``legacy`` holds all v1 scopes)."""
+def require_scope(scope: str, *, dashboard: bool = False, v1: bool = True):
+    """Dependency: a TenantContext whose key holds ``scope``.
+
+    On v1 routes ``legacy`` holds every scope; ``v1=False`` (the v2 routes)
+    requires the scope itself.
+    """
 
     async def dependency(request: Request) -> TenantContext:
         try:
@@ -55,11 +59,11 @@ def require_scope(scope: str, *, dashboard: bool = False):
                     headers={"WWW-Authenticate": 'Basic realm="Guardpost Dashboard"'},
                 ) from exc
             raise
-        if not ctx.allows(scope):
+        if not ctx.allows(scope, v1=v1):
             raise HTTPException(status_code=403, detail=f"API key lacks scope {scope!r}")
         return ctx
 
-    dependency.__name__ = f"require_{scope}"
+    dependency.__name__ = f"require_{scope}" if v1 else f"require_v2_{scope}"
     return dependency
 
 

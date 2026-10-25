@@ -157,3 +157,71 @@ def test_cli_key_works_against_the_server(gp, clean_env):
         resp = client.post("/api/v1/check", json={"email": "a@gmail.com"},
                            headers={"Authorization": f"Bearer {out.strip()}"})
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# purge, ip-reputation import, keyed re-key on migrate
+# ---------------------------------------------------------------------------
+
+
+def test_purge_command(gp):
+    gp("migrate")
+    conn = sqlite3.connect(gp.db)
+    conn.execute(
+        "INSERT INTO accounts (tenant_id, account_id, fp_key, ip_key, created_at, updated_at) "
+        "VALUES ('default', 'old', 'f', 'i', 0, 0)")
+    conn.execute(
+        "INSERT INTO ip_reputation (ip_address, data) VALUES ('198.51.219.1', ?)",
+        (json.dumps({"ip_address": "198.51.219.1", "total_registrations": 1, "status": "clean",
+                     "last_registration_at": "2025-01-01T00:00:00+00:00"}),))
+    conn.commit()
+    conn.close()
+    out, _ = gp("purge")
+    assert "signals: 1" in out and "ip_rows: 1" in out
+    conn = sqlite3.connect(gp.db)
+    assert conn.execute("SELECT fp_key, ip_key FROM accounts").fetchone() == (None, None)
+    conn.close()
+
+
+def test_ip_reputation_import_command(gp, tmp_path):
+    gp("migrate")
+    rows = [
+        {"ip_address": "198.51.219.5", "total_registrations": 7, "suspicious_registrations": 5,
+         "status": "graylisted", "status_reason": "5 suspicious registrations"},
+        {"ip_address": "198.51.219.0/24", "total_registrations": 30, "status": "clean"},
+    ]
+    path = tmp_path / "rep.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows))
+    out, _ = gp("ip-reputation", "import", str(path), "--dry-run")
+    assert "would merge 2 rows" in out
+    out, _ = gp("ip-reputation", "import", str(path))
+    assert "merged 2 rows" in out and "2 new" in out
+    (tmp_path / "rep.json").write_text(json.dumps([{**rows[0], "status": "blacklisted", "total_registrations": 1}]))
+    gp("ip-reputation", "import", str(tmp_path / "rep.json"))
+    conn = sqlite3.connect(gp.db)
+    data = json.loads(conn.execute("SELECT data FROM ip_reputation WHERE ip_address = '198.51.219.5'").fetchone()[0])
+    conn.close()
+    assert (data["status"], data["total_registrations"]) == ("blacklisted", 7)
+    (tmp_path / "bad.json").write_text(json.dumps([{"ip_address": "198.51.0.0/16", "total_registrations": 1}]))
+    _, err = gp("ip-reputation", "import", str(tmp_path / "bad.json"), ok=False)
+    assert "invalid row" in err
+
+
+def test_migrate_rekeys_bans_with_a_secret(gp, clean_env):
+    gp("migrate")
+    conn = sqlite3.connect(gp.db)
+    conn.execute("INSERT INTO bans (tenant_id, email_hash, banned_at) VALUES ('default', ?, '2026-01-01T00:00:00')",
+                 ("a" * 64,))
+    conn.commit()
+    conn.close()
+    clean_env.setenv("GUARDPOST_SECRET", "cli-secret")
+    out, _ = gp("migrate")
+    assert "re-keyed 1 bans" in out
+    out, _ = gp("migrate")
+    assert "re-keyed" not in out
+    conn = sqlite3.connect(gp.db)
+    assert conn.execute("SELECT email_hash FROM bans").fetchone()[0] != "a" * 64
+    conn.close()
+    clean_env.setenv("GUARDPOST_SECRET", "other-secret")
+    _, err = gp("migrate", ok=False)
+    assert "not the secret" in err

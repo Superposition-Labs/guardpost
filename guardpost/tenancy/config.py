@@ -4,8 +4,8 @@ Every field has a default, so ``{}`` is a valid config and a tenant only
 records what it overrides. Unknown keys are rejected, so a typo in
 ``guardpost tenant config-set`` fails loudly instead of being ignored.
 
-The device, same-person and referral settings are stored and validated now;
-the v2 rules that read them arrive in a later release.
+The device, same-person and referral settings are read by the v2 check
+(guardpost/rules); their defaults are Factory v2's windows and thresholds.
 """
 
 from __future__ import annotations
@@ -58,8 +58,11 @@ class Referral(_Model):
 
 
 class Retention(_Model):
-    # Per-tenant registration signals (hashed events) are deleted after this.
+    # Per-tenant registration signals (hashed events; the device, IP, network
+    # and name keys of v2 ledger accounts) are deleted after this.
     signals_days: int = Field(default=35, ge=1, le=400)
+    # v2 lifecycle events (POST /api/v2/accounts/{id}/events) are kept this long.
+    events_days: int = Field(default=400, ge=1, le=3650)
 
 
 class TenantConfig(_Model):
