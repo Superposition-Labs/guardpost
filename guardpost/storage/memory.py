@@ -30,6 +30,13 @@ class MemoryStorage:
     async def save_ip_reputation(self, record: IPReputationRecord) -> None:
         self._ip_reputation[record.ip_address] = record
 
+    async def update_ip_reputation(self, key, mutate) -> IPReputationRecord:
+        # No await between the read and the write, so this is atomic on the
+        # event loop.
+        record = mutate(self._ip_reputation.get(key))
+        self._ip_reputation[key] = record
+        return record
+
     # Banned Emails
     async def is_email_banned(self, email_hash: str) -> bool:
         return email_hash in self._banned_emails
